@@ -1,0 +1,101 @@
+- preface; in general
+  - goal is the python or C++14/17 philosophy of having many tools for the job
+    and choosing the right one
+  - python 3 and no looking back (probably 3.6+)
+  - coding standards TBD (single vs double quotes, data type hints, etc.)
+  - core of this project is specification, not implementation
+  - this doc describes core principles / implementation as a module
+    - CLI is another topic
+  - scap is just testing grounds for the concept, which would be later cleaned
+    and put as a separate runner / project in its own git repo
+
+
+- tree structure of tests / build or execution units / etc.
+  - using native python modules and packages
+  - types
+    - real - using filesystem dirs with __init__.py
+    - custom - using own finder/loader per PEP302
+    - virtual - creating modules via types.ModuleType(), without a loader
+
+- execution types
+  - "import time"
+    - the tree structure is recursively imported using native python import
+      mechamisms, from the top level
+    - the goal is to provide classes for (later) execution
+      - any turing-complete logic can be executed to provide them!
+        - or for import recursion
+    - each pkg/module can decide how/if to recurse when being imported
+      - this "selects" the units (parts of the hierarchy) for (later) execution
+      - result is dynamic for each run
+        - can be parametrized (user input)
+        - detected system/OS environment
+    - each pkg/module can also create virtual sub-modules using importlib
+    - modules should expose the final objects via __all__
+    - is always sequential, no paralell importing
+  - "execution time"
+    - based on user input, a specific identifier is selected (given by user)
+      - analogy to a make(1) target; "prepare", "test", "run", "cleanup"
+    - the imported hierarchy is traversed and module list flattened
+    - the modules are inspected for a callable object matching the id
+    - all callable objects are scheduled (dependencies, etc.)
+    - the callable objects are executed/called
+      - args/kwargs passed from user, if any
+    - the execution may be parallelized
+  - data locality
+    - while execution can happen anywhere and any time, data stay local to
+      the respective modules
+    - if one module imports another and calls its function, any global vars
+      modified by the function stay local to its import scope, not caller scope
+      - natively done by python!
+
+- module execution parameters
+  - each to-be-executed callable can have a special configuration attribute
+    - for by the scheduler / during execution
+  - the attribute is a dict (or maybe a namedtuple-created type; for defaults)
+    - pre-python-3.7: Node.__new__.__defaults__ = (1, 2, 3)
+    - we want to make it clear that it should be immutable after import-time
+  - it is filled in and set by the parent module during import-time
+  - its name should be something unique, ie. 'pexen_meta'
+  - the main use is for scheduling the execution-time run, with data like:
+    - requires/provides: strings/tags to order execution
+      - actually any __eq__ capable object, not just string
+        - if callable, should we treat it as getter for the string?
+      - list/tuple for requires: logical OR between them
+    - reverse-requires: make other module (string/tag) depend on me
+    - claims: strings/tags locked exclusively for duration of run
+
+- collecting return values (ie. test results)
+  - list of callable units was flattened and potentially re-ordered
+  - thus, the final return "value" from the runner is an unordered list
+    of all return values from all callable units
+    - or maybe a list of tuples of (<callable_object>, <return_value>)
+      - or maybe include parent module name/path as well?
+  - ideally asynchronous, so external logic can parse the return values
+    during runtime
+    - the entire runner would have some .start() that would return a Queue
+      object with incoming results (maybe an iterator)
+      - and also some .wait_until_exec_completed()
+
+
+- other
+  - can co-exist with other systems (Makefiles, etc.) when using fs dir tree
+    - or other python code, of course!
+  - CLI tool would be provided
+    - maybe libs for other use cases too; test execution and result upload
+  - extra functionality
+    - manually selecting modules to run ("run a subset of suite")
+      - import-time would probably be like usual, affects only exec time
+      - inspect.getmodule(<callable>)
+        - compare objects, not module names
+  - useful modules:
+    - importlib (don't use 'imp', python ~3.4+ uses importlib natively)
+      - ideally importlib.util.module_from_spec(spec)
+        - doesn't seem to work with simple empty pkgs like imp.new_module()
+          - use types.ModuleType(), see its args
+    - inspect (for getting module name, contents, etc.)
+    - built-in callable()
+    - pkgutil (walk_packages() or iter_modules())
+      - extend_path for distributing parts of one test suite separately
+
+
+
