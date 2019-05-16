@@ -9,93 +9,111 @@
   - scap is just testing grounds for the concept, which would be later cleaned
     and put as a separate runner / project in its own git repo
 
-
 - tree structure of tests / build or execution units / etc.
-  - using native python modules and packages
-  - types
-    - real - using filesystem dirs with __init__.py
-    - custom - using own finder/loader per PEP302
-    - virtual - creating modules via types.ModuleType(), without a loader
+  - using native python principles - callables, objects, modules/packages
 
 - execution types
-  - "import time"
-    - the tree structure is recursively imported using native python import
-      mechamisms, from the top level
-    - the goal is to provide classes for (later) execution
-      - any turing-complete logic can be executed to provide them!
-        - or for import recursion
-    - each pkg/module can decide how/if to recurse when being imported
-      - this "selects" the units (parts of the hierarchy) for (later) execution
-      - result is dynamic for each run
-        - can be parametrized (user input)
-        - detected system/OS environment
-    - each pkg/module can also create virtual sub-modules using importlib
-    - modules should expose the final objects via __all__
-    - is always sequential, no paralell importing
+  - "factory time"
+    - the goal is to provide callable objects for (later) execution
+      - is sort-of a "pre-execution" run
+    - works by calling a root-level factory function (callable) that generates
+      exec-time callables and also recurses further into submodules or similar
+      logical units, if applicable, collecting their generated callables
+    - any factory func at any recursion level can use any python mechanisms
+      - importing a submodule to call its factory function (recurse further)
+      - instantiating a class into a __call__ capable instance and returning it
+      - connect over network, unpack archives/flasks, etc.
+    - any user args are passed recursively through args/kwargs to parametrize
+      the factory process
+      - also any other factors (OS type, HW properties, etc. can be detected)
+    - put any generated callables in a list, append any callables created by
+      recursion, return the list to parent
+      - if no valid callables can be returned at this time, return empty list
+    - default (example) implementation of recursion
+      - find any submodules for the current package (if package)
+      - from <submodule> import __name__ as func
+        - and recurse into func
+    - note that the factory function can do *whatever* it wants and generate
+      any callables it wants
+      - related to files on disk, imaginary ones created using a for loop, etc.
+      - the recursion part can also be anything you need; if you don't need to
+        recurse and want to generate all callables from a single func, filling
+        call paths (see below) from an imaginary "file system", go for it!
+      - make it fit for whatever purpose you need
+    - is always sequential, no parallel factoring
   - "execution time"
-    - based on user input, a specific identifier is selected (given by user)
-      - analogy to a make(1) target; "prepare", "test", "run", "cleanup"
-    - the imported hierarchy is traversed and module list flattened
-    - the modules are inspected for a callable object matching the id
-    - all callable objects are scheduled (dependencies, etc.)
-    - the callable objects are executed/called
-      - args/kwargs passed from user, if any
+    - the callables collected during factory-time are scheduled and executed
+    - any args/kwargs passed from user (execution is separate from factory)
+    - data locality
+      - while execution can happen anywhere and any time, data stay local to
+        the modules the callables were defined in
+      - if a callable from one module imports another and calls a function
+        inside it and the function modifies a "global" variable, the variable
+        stays local to its imported scope/namespace, not the caller scope
+        - natively done by python!
     - the execution may be parallelized
-  - data locality
-    - while execution can happen anywhere and any time, data stay local to
-      the respective modules
-    - if one module imports another and calls its function, any global vars
-      modified by the function stay local to its import scope, not caller scope
-      - natively done by python!
 
 - module execution parameters
   - each to-be-executed callable can have a special configuration attribute
     - for by the scheduler / during execution
-  - the attribute is a dict (or maybe a namedtuple-created type; for defaults)
-    - pre-python-3.7: Node.__new__.__defaults__ = (1, 2, 3)
-    - we want to make it clear that it should be immutable after import-time
-  - it is filled in and set by the parent module during import-time
-  - its name should be something unique, ie. 'pexen_meta'
+  - the attribute could be a dict(), but will probably be a custom data type
+    - with helper functions, defaults, etc.
+  - it is filled in and set by factory functions during factory-time
+    - though not exclusively, r/w access from elsewhere is permitted
+  - the attribute name should be something unique, ie. 'pexen_meta_'
+    - provided as a constant, ie. pexen.METANAME
   - the main use is for scheduling the execution-time run, with data like:
     - requires/provides: strings/tags to order execution
-      - actually any __eq__ capable object, not just string
-        - if callable, should we treat it as getter for the string?
+      - actually any object, not just string, '==' will be used
       - list/tuple for requires: logical OR between them
-    - reverse-requires: make other module (string/tag) depend on me
-    - claims: strings/tags locked exclusively for duration of run
+    - reverse-requires: make other callable (string/tag) depend on me
+      - not sure if possible; cannot reference another callable
+    - provides_barrier: like provides, but all callables need to finish
+      - (all callables that define a certain string)
+    - claims: strings locked exclusively for duration of run
+    - callable path: see below
 
 - collecting return values (ie. test results)
   - list of callable units was flattened and potentially re-ordered
   - thus, the final return "value" from the runner is an unordered list
     of all return values from all callable units
-    - or maybe a list of tuples of (<callable_object>, <return_value>)
-      - or maybe include parent module name/path as well?
+    - actually a list of tuples of (<callable_object>, <return_value>)
   - ideally asynchronous, so external logic can parse the return values
     during runtime
     - the entire runner would have some .start() that would return a Queue
       object with incoming results (maybe an iterator)
       - and also some .wait_until_exec_completed()
+  - since all this will be known after factory-time, the runner object could
+    expose the list of callables to the user prior to execution-time
+    - for inspection/debugging/progress-tracking/etc.
 
+- callable paths, names, test results
+  - for keeping track of callable hierarchy, for interpreting return values
+    - ie. mapping test names to test results
+  - stored inside the callable pexen.METANAME attribute, filled in during exec
+  - stored as lists of absolute paths, ie. ['kernel', 'fs', 'ext4']
+  - the user can easily get these via getattr from the result tuples
+    - or from the not-yet-executed callables right after factory-time
+  - the naming hierarchy can be completely arbitrary / made up, whatever fits
+  - how it works (during factory-time)
+    - a factory func sets the attribute on any new created callables
+      - it consists of the parent path (to this point) and the callable name
+        - the parent path can be passed to this factory func via normal func
+          argument, ie. 'callpath', and "cut away" from the passed *args
+        - the callable name can be the function name, test name, whatever
+    - when recursing further into the hierarchy (instead of creating callables)
+      - append a suitable name to parent path, pass it to each recursing func
+        - if recursing into submodules, default to appending submodule name
 
 - other
   - can co-exist with other systems (Makefiles, etc.) when using fs dir tree
     - or other python code, of course!
   - CLI tool would be provided
     - maybe libs for other use cases too; test execution and result upload
+  - exec-time callables are run in a context manager
+    - so __exit__ can be used for any emergency resource cleanup
   - extra functionality
-    - manually selecting modules to run ("run a subset of suite")
-      - import-time would probably be like usual, affects only exec time
-      - inspect.getmodule(<callable>)
-        - compare objects, not module names
-  - useful modules:
-    - importlib (don't use 'imp', python ~3.4+ uses importlib natively)
-      - ideally importlib.util.module_from_spec(spec)
-        - doesn't seem to work with simple empty pkgs like imp.new_module()
-          - use types.ModuleType(), see its args
-    - inspect (for getting module name, contents, etc.)
-    - built-in callable()
-    - pkgutil (walk_packages() or iter_modules())
-      - extend_path for distributing parts of one test suite separately
-
-
-
+    - manually selecting callables to run ("run a subset of suite")
+      - right after factory-time
+      - selecting a common call path prefix will run all callables sharing it
+        - thus if full path is provided, only a single callable is run
