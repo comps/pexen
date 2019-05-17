@@ -117,3 +117,8 @@
       - right after factory-time
       - selecting a common call path prefix will run all callables sharing it
         - thus if full path is provided, only a single callable is run
+    - re-scheduling callables on the fly?
+      - if their return value was bad (test fail)
+      - if they provide a resource (semaphor) that got depleted by others
+      - probably a bad idea; let the user run another loop
+
