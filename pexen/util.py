@@ -1,0 +1,2 @@
+class PexenWarning(UserWarning):
+    pass

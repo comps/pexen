@@ -1,6 +1,7 @@
 import pkgutil
 import inspect
 import importlib
+from . import attr
 
 
 def _import_from_path(path, name):
@@ -14,7 +15,7 @@ def _import_from_path(path, name):
     spec.loader.exec_module(mod)
     return mod
 
-def _extract_callables(mod, filterby):
+def _extract_callables(mod, callpath, filterby):
     for name, obj in inspect.getmembers(mod):
         if not callable(obj):
             continue
@@ -22,6 +23,7 @@ def _extract_callables(mod, filterby):
             continue
         if filterby and name not in filterby:
             continue
+        attr.assign_val(obj, callpath=callpath+[name])
         yield obj
 
 def module_factory(*args, callpath=[], startfrom, filterby=[], ffunc=None,
@@ -50,7 +52,7 @@ def module_factory(*args, callpath=[], startfrom, filterby=[], ffunc=None,
     callables = []
 
     # callables from startfrom
-    callables.extend(_extract_callables(startfrom, filterby))
+    callables.extend(_extract_callables(startfrom, callpath, filterby))
 
     # callables from startfrom's submodules
     for filefinder, modname, ispkg in pkgutil.iter_modules(startfrom.__path__):
@@ -62,6 +64,6 @@ def module_factory(*args, callpath=[], startfrom, filterby=[], ffunc=None,
             if (isinstance(new, list)):
                 callables.extend(new)
         else:
-            callables.extend(_extract_callables(mod, filterby))
+            callables.extend(_extract_callables(mod, callpath, filterby))
 
     return callables
