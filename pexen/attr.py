@@ -9,6 +9,8 @@ class CallAttr:
             'requires': set(),
             'provides': set(),
             'claims': set(),
+            'priority': 0,
+            'kwargs': {},
         })
         self.update(kwargs)
 
@@ -38,6 +40,7 @@ class CallAttr:
     #def __setitem__(self, key, value):
     #    self.__setattr__(key, value)
 
+# dataclass cannot guarantee data type of its members unless completely frozen
 #@dataclasses.dataclass
 #class CallAttr:
 #    callpath: list = dataclasses.field(default_factory=list)
@@ -91,6 +94,8 @@ get_callpath = _gen_get_subattr('callpath')
 get_requires = _gen_get_subattr('requires')
 get_provides = _gen_get_subattr('provides')
 get_claims   = _gen_get_subattr('claims')
+get_priority = _gen_get_subattr('priority')
+get_kwargs   = _gen_get_subattr('kwargs')
 
 def func_attr(**kwargs):
     def decorate_func_attr(func):

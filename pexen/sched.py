@@ -1,7 +1,7 @@
 import warnings
+#from concurrent import futures
 
-#from . import attr
-from .attr import get_requires, get_provides
+from .attr import get_requires, get_provides, get_kwargs
 from . import util
 
 class Sched:
@@ -12,22 +12,29 @@ class Sched:
         self.frontline = []
         # provided resources pointing to tasks requiring them
         self.deps = {}
+        # default for shared state between chained tasks
+        self.default_shared = {}
+        # whether the current task set was sanity checked
+        self.checked = False
         if tasks:
             self.add_tasks(tasks)
-        print(self.deps)
 
     def add_tasks(self, new):
         self.tasks.update(set(new))
+        self.checked = False
+        if __debug__:
+            self.check()
+        # save a few cycles - if the check fails, don't build deps for execution
         self._build_deps(new, self.deps)
 
     def _build_deps(self, tasks, alldeps={}):
         """Build a dict of task dependencies (requires/provides).
 
         Top-level dict is indexed by dep name, each having a (sub-)dict indexed
-        by task callable, each of which points to a set of other deps of the task.
+        by task callable, each of which points to a set of requires of the task.
         """
         for task in tasks:
-            reqs = get_requires(task)
+            reqs = get_requires(task).copy()
             for req in reqs:
                 if req in alldeps:
                     alldeps[req][task] = reqs
@@ -35,57 +42,29 @@ class Sched:
                     alldeps[req] = {task: reqs}
         return alldeps
 
-
-            #attr = attr.retrieve_attr(task)
-            #if attr:
-            # TODO exactly here:
-            # - instead of using task obj directly, create a dict/list/tuple/whatever
-            #   with a list of (all) the task's requires
-            #   - so the list can be modified during simulation/runtime without altering
-            #     the object attrs
-            #
-
-#            for dep in get_requires(task):
-#                if dep in self.deps:
-#                    self.deps[dep].add(task)
-#                else:
-#                    self.deps[dep] = set(task)
-
-#    def __go_deeper(self, 
-
-#    def _check_satisfied(self, pedantic=True):
-#        """Check if all requires can be satisfied by provides."""
-#        pass
-#        #for task in self.tasks:
-#        # TODO: we can't simply check if any provide satisfies any require,
-#        # the tasks might be ordered in a way where a provide is never provided
-#        # because the task won't run due to unsatisfied require
-#        # - we need to actually schedule and simulate a (single-threaded) run
-#
-#    def _check_circular(self, deps, maxdepth=10, chain=[]):
-#        """Check for circular dependencies up to the specified depth."""
-#        for dep in deps:
-#            tasks = self.deps[dep]
-#            for task in tasks:
-#                attr = attr.retrieve_attr(task)
-#                if attr:
-#                    for subdep in attr.provides
-
     @staticmethod
-    def _satisfy_provide(alldeps, provide, task):
-        """Returns a set of tasks ready to be run."""
+    def _satisfy_provides(alldeps, task):
+        """Go through a task's provides and satisfy all requires in alldeps.
+
+        Returns a tuple of two sets; tasks ready to be run (all requires
+        satisfied) and all affected ("child") tasks, even the ones with still
+        unmet requires.
+        """
         torun = set()
-        if not provide in alldeps:
-            warnings.warn(f"dep \"{provide}\" provided by {task}, "
-                          "but not required by any task",
-                          category=util.PexenWarning)
-            return torun
-        tasks = alldeps.pop(provide)
-        for task, reqs in tasks.items():
-            reqs.remove(provide)
-            if not reqs:
-                torun.add(task)
-        return torun
+        children = set()
+        for provide in get_provides(task):
+            if not provide in alldeps:
+                warnings.warn(f"Dep \"{provide}\" provided by {task}, "
+                              "but not required by any task",
+                              category=util.PexenWarning)
+                continue
+            ctasks = alldeps.pop(provide)
+            children.update(ctasks)
+            for ctask, creqs in ctasks.items():
+                creqs.remove(provide)
+                if not creqs:
+                    torun.add(ctask)
+        return (torun, children)
 
     def _simulate_deps(self):
         alldeps = self._build_deps(self.tasks)
@@ -94,27 +73,39 @@ class Sched:
             print(f"frontline: {frontline}")
             # imagine we run the task <here>
             # now satisfy deps by this task's provides
-            for prov in get_provides(task):
-                frontline.extend(self._satisfy_provide(alldeps, prov, task))
+            nexttasks, children = self._satisfy_provides(alldeps, task)
+            frontline.extend(nexttasks)
         if alldeps:
-            print("alldeps NOT empty!:")
-            print(alldeps)
+            raise util.DepcheckError(
+                f"Unsatisfied requires remain: {list(alldeps.keys())}",
+                alldeps)
 
-        # extract all leaf nodes from self.tasks into self.frontline
-        # make a copy/backup of self.deps (as it will be modified)
-        # "run" them one by one
-        # - satisfy what they provide by resolving/removing items from self.deps
-        #   - adding more tasks to self.frontline
-        # when frontline is empty:
-        # - if there are still deps left in self.deps, they were not satisfied
-        #   - and tasks they point to were not run
-        #     - this automagically includes circular deps!!
-        #
-        # run simulation (and other checks) automatically only if __debug__ is true
-        # - allow the user to run them manually
+    def check(self):
+        """Run preliminary safety checks before execution.
 
+        Performed automatically unless running python with -O.
+        """
+        if not self.checked:
+            self._simulate_deps()
+        self.checked = True
 
-#    def schedule(self, runchecks=True):
-#        if runchecks:
-#            self._check_satisfied()
-#            self._check_circular(self.deps.keys())
+    def add_shared(self, **kwargs):
+        """Pre-set key/values in the default shared space."""
+        self.default_shared.update(kwargs)
+
+    def run(self):
+        # tasks without requires
+        frontline = list((t for t in self.tasks if not get_requires(t)))
+        allshared = dict(((task, self.default_shared.copy()) for task in self.tasks))
+        # TODO: concurrency futures
+        for task in frontline:
+            shared = allshared[task]
+            kwargs = get_kwargs(task)
+            #
+            ret = task(shared, **kwargs)
+            #
+            nexttasks, children = self._satisfy_provides(self.deps, task)
+            for child in children:
+                allshared[child].update(allshared[task])
+            del allshared[task]
+            frontline.extend(nexttasks)
