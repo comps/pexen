@@ -1,5 +1,6 @@
 import sys
 import warnings
+from collections import namedtuple
 import threading
 import queue
 import multiprocessing
@@ -32,30 +33,36 @@ class PoolError(SchedulerError):
 
 
 class ProcessWorkerPool:
-    Queue = multiprocessing.Queue
-    Worker = multiprocessing.Process
+    _Queue = multiprocessing.Queue
+    _Worker = multiprocessing.Process
+
+    _WorkerMsg = namedtuple('WorkerMsg', ['workid', 'type', 'taskid', 'ret', 'exc'])
 
     def __init__(self, workers=1, spare=1):
-        self.workers = set()
-        self.taskq = self.Queue()
-        self.resultq = self.Queue()
+        self.alive_workers = 0
+        self.taskq = self._Queue()
+        self.resultq = self._Queue()
         self.active_tasks = 0
         self.max_tasks = workers+spare
-        self.task_index = {}  # so we don't pickle task objects
-        self.shutting_down = False
         self.start_pool(workers)
 
     @staticmethod
-    def _worker_body(outqueue, inqueue):
+    def _worker_body(workid, outqueue, inqueue):
+        # avoid using WorkerMsg here: it's not picklable
+        # if this body becomes too complex, make this a @classmethod and transfer
+        # namedtuple._asdict().values() across to the parent
         while True:
             taskinfo = inqueue.get()
             if not taskinfo:
+                msg = (workid, 'finished', None, None, None)
+                outqueue.put(msg)
                 break
             try:
                 taskid, task, shared = taskinfo
                 kwargs = get_kwargs(task)
                 ret = task(shared, **kwargs)
-                outqueue.put((taskid, ret, None))
+                msg = (workid, 'taskdone', taskid, ret, None)
+                outqueue.put(msg)
             except Exception:
                 extype, exval, extb = sys.exc_info()
                 # multiprocessing.Queue prints a TypeError if an object is not
@@ -70,7 +77,8 @@ class ProcessWorkerPool:
                         pickle.dumps(extb)
                     except TypeError:
                         extb = None
-                outqueue.put((taskid, None, (extype, exval, extb)))
+                msg = (workid, 'taskdone', taskid, None, (extype, exval, extb))
+                outqueue.put(msg)
 
                 # in case the above ever gets fixed:
                 #try:
@@ -82,11 +90,17 @@ class ProcessWorkerPool:
                 #        outqueue.put((taskid, None, (extype, None, None)))
 
     def start_pool(self, workers):
-        for _ in range(workers):
-            w = self.Worker(target=self._worker_body,
-                            args=(self.resultq, self.taskq))
+        if self.alive_workers > 0:
+            raise PoolError("Cannot re-start a running pool")
+        self.workers = []
+        for workid in range(workers):
+            w = self._Worker(target=self._worker_body,
+                             args=(workid, self.resultq, self.taskq))
             w.start()
-            self.workers.add(w)
+            self.workers.append(w)
+        self.alive_workers = workers
+        self.task_index = {}  # so we don't pickle task objects
+        self.shutting_down = False
 
     def full(self):
         return self.active_tasks >= self.max_tasks
@@ -104,47 +118,40 @@ class ProcessWorkerPool:
         self.taskq.put((id(task), task, shared))
         self.active_tasks += 1
 
-    #def topup(self, taskinfos):
-    #    itr = iter(taskinfos)
-    #    cnt = self.max_tasks - self.active_tasks
-    #    for _ in range(cnt):
-    #        self.taskq.put(next(itr))
-    #        self.active_tasks += 1
-    #    return cnt
-
     def shutdown(self, wait=False):
+        if self.shutting_down:
+            return
         self.shutting_down = True
         for _ in range(len(self.workers)):
             self.taskq.put(None)
         if wait:
-            for worker in self.workers:
-                worker.join()
+            for w in self.workers:
+                w.join()
             # iter_results over queued results still valid after this
-
-    def _cleanup_workers(self):
-        if self.shutting_down and self.workers:
-            # for multiprocessing, this does waitpid(2) and collects zombies
-            for dead in [x for x in self.workers if not x.is_alive()]:
-                self.workers.remove(dead)
 
     # if you need something asynchronous instead of the blocking iter_results,
     # ie. something returning a Queue, you may need to spawn a new thread to
     # manage the queue and call active_tasks -= 1 for each added item
 
+    # TODO: document that iter_results can be called multiple times to get
+    #       multiple iterators, each being thread-safe or process-safe, depending
+    #       on the WorkerPool type
     def iter_results(self):
-        while True:
-            if not self.workers and self.active_tasks <= 0:
-                return
-            self._cleanup_workers()
-            if self.active_tasks > 0:
-                taskid, res, exdata = self.resultq.get()
-                task = self.task_index[taskid]
+        while self.alive_workers > 0 or self.active_tasks > 0:
+            msg = self._WorkerMsg._make(self.resultq.get())
+            if msg.type == 'finished':
+                self.workers[msg.workid].join()
+                self.alive_workers -= 1
+            elif msg.type == 'taskdone':
+                task = self.task_index[msg.taskid]
                 self.active_tasks -= 1
-                yield (task, res, exdata)
+                yield (task, msg.ret, msg.exc)
+            else:
+                raise RuntimeError(f"unexpected msg: {msg}")
 
 class ThreadWorkerPool(ProcessWorkerPool):
-    Queue = queue.Queue
-    Worker = threading.Thread
+    _Queue = queue.Queue
+    _Worker = threading.Thread
 
 class Sched:
     def __init__(self, tasks=set()):
@@ -233,101 +240,64 @@ class Sched:
         """Pre-set key/values in the default shared space."""
         self.default_shared.update(kwargs)
 
-    def run(self):
+    def run_simple(self):
         # tasks without requires
         frontline = list((t for t in self.tasks if not get_requires(t)))
         allshared = dict(((task, self.default_shared.copy()) for task in self.tasks))
-        # TODO: concurrency futures
         for task in frontline:
             shared = allshared[task]
             kwargs = get_kwargs(task)
-            #
             yield task(shared, **kwargs)
-            #
             nexttasks, children = self._satisfy_provides(self.deps, task)
             for child in children:
                 allshared[child].update(allshared[task])
             del allshared[task]
             frontline.extend(nexttasks)
 
-#    @staticmethod
-#    def _worker_wrap(inqueue)   # TODO: how to cleanly shut down idle workers? .. using an event?
-#
-#    def _manager(self, results, workers, executor, spare):
-#        """Schedules workers, distributes tasks."""
-#        # tasks without requires
-#        frontline = list(((get_priority(t), t) for t in self.tasks if not get_requires(t)))  # TODO: add priority, make tuples
-#        allshared = dict(((task, self.default_shared.copy()) for task in self.tasks))
-#        ex = executor(max_workers=workers)
-#
-#        # TODO: below is fucked, rewrite using a pool with input queue, using "spare" cnt as max queue size,
-#        #       and output queue, for result collection ...
-#        #       ... run the entire child in a custom func that catches all exceptions and puts the result
-#        #           on the queue as (result, exception)
-#        #           ... then, in _manager, read this queue, re-wrap it as (task,result,exception) and put
-#        #               it on the real result queue (always non-multiprocessing queue.Queue)
-#        #
-#        #       also you probably need to count how many results you got (same as nr. of tasks sent),
-#        #       to know when to end, otherwise you might wait for a result from a pool of idle workers
-#
-#
-#        #      add_done_callback(fn)
-#
-#        running = set()
-#        running_max = workers+spare
-#        while True:
-#            # fill up running tasks
-#            # we need to do this every cycle as there will be times where deps
-#            # will restrict running tasks to less than running_max
-#            frontline.sort()
-#            while len(frontline) > 0 and len(running) < running_max:
-#                _, task = fronline.pop(0)
-#                shared = allshared[task]
-#                kwargs = get_kwargs(task)
-#                running.add(ex.submit(task, shared, **kwargs))
-#            if not running:
-#                return  # no tasks added, all done
-#            finished = set()
-#            for f in futures.as_completed(running):
-#                results.put((
-#                finished.add(f)
-#
-#            running.difference_update(finished)
-#
-#            #for i in range(max(0, running_max-len(running))):
-#            #    running.add(ex.submit
-#
-#    # TODO: rename to run()
-#    def run_thread(self, workers=1, executor=futures.ThreadPoolExecutor, spare=3):
-#        """Returns a Queue with tuples of
-#        (<callable>,<retval>,<exception>,<shared>)."""
-#        results = queue.Queue()
-#        t = threading.Thread(target=self._manager,
-#                             args=(results, workers, executor, spare))
-#        t.start()
-#        self.manager_thread = t
-#        return results
-#
-#    def finished(self):
-#        return not self.manager_thread.is_alive()
-#
-#    # TODO: some check_error() function to see if manager raised an exception
-#
-#    def run_iter(self, *args, **kwargs):
-#        results = self.run_thread(*args, **kwargs)
-#        while True:
-#            # TODO: check if manager raised an exception + re-raise it here
-#            yield results.get()
-#            if self.finished():
-#                break
-#
-#
-#    # TODO:
-#    # - run() returns generator that needs to be regularly called to schedule next / get a result
-#    # - run_bg() returns a Queue object (internally spawns a thread that does run() and puts results into the queue)
-#
-#    def shutdown(self):
-#        # TODO: just prevent any new tasks from being scheduled and make
-#        #       _manager return (is_alive() == False) as soon as all results
-#        #       from currently running workers are pushed to the queue
-#        #       ... also call executor.shutdown()
+    @staticmethod
+    def _annotate_prio(callobj, cnt):
+        primary = get_priority(callobj)
+        # give each callobj a unique integer, to prevent list.sort() / sorted()
+        # comparing actual callable objects if their primary prio is the same
+        secondary = next(cnt)
+        return (primary, secondary, callobj)
+
+    def run(self, pool=None):
+        if not pool:
+            pool = ThreadWorkerPool()
+        counter = iter(range(len(self.tasks)))
+        frontline = list((self._annotate_prio(t, counter)
+                            for t in self.tasks if not get_requires(t)))
+        allshared = dict(((task, self.default_shared.copy()) for task in self.tasks))
+
+        frontline.sort()
+        while frontline and not pool.full():
+            _, _, task = frontline.pop(0)  # 3x faster than set with sorted()
+            shared = allshared[task]
+            pool.submit(task, shared)
+
+        for resinfo in pool.iter_results():
+            yield resinfo
+
+            # tasks to be scheduled next, unblocked by fresh provides
+            task, _, _ = resinfo
+            next_tasks, children = self._satisfy_provides(self.deps, task)
+
+            # propagate shared state from current to next tasks
+            for child in children:
+                allshared[child].update(allshared[task])
+            del allshared[task]
+
+            # put new tasks on the frontline
+            next_with_prio = (self._annotate_prio(t, counter) for t in next_tasks)
+            frontline.extend(next_with_prio)
+
+            # and schedule as much as we can
+            frontline.sort()
+            while frontline and not pool.full():
+                _, _, task = frontline.pop(0)
+                shared = allshared[task]
+                pool.submit(task, shared)
+
+            if not frontline and not self.deps:
+                pool.shutdown()
