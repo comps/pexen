@@ -33,10 +33,6 @@ Usage:
     print(res)
 """
 
-# TODO: document picklability callable limitations when using multiprocessing;
-#       when a callable itself creates a function object (ie. is a decorator)
-#       and tries to pass it, pickling will fail
-
 import sys
 import warnings
 from collections import namedtuple
@@ -70,11 +66,20 @@ class PoolError(SchedulerError):
     """Raised by ProcessWorkerPool or ThreadWorkerPool."""
     pass
 
+def _is_picklable(obj):
+    try:
+        pickle.dumps(obj)
+        return True
+    except (TypeError, AttributeError):
+        return False
+
+# TODO: document usage; also mention:
+# - what does iter_results return (in the tuple)
+# - that returned shared will be None when pickling fails
+#   - also that ret will be None when pickling fails
 class ProcessWorkerPool:
     _Queue = multiprocessing.Queue
     _Worker = multiprocessing.Process
-
-    _WorkerMsg = namedtuple('WorkerMsg', ['workid', 'type', 'taskid', 'ret', 'exc'])
 
     def __init__(self, alltasks, workers=1, spare=1):
         self.alive_workers = 0
@@ -86,30 +91,36 @@ class ProcessWorkerPool:
         #   a potentially unpicklable callable
         # - it lets the worker return a picklable integer, which we then
         #   transform back to the callable before returning it to the user
-        self.task_index = {}
+        self.task_map = {}
         self.start_pool(workers, spare, alltasks)
 
     @staticmethod
-    def _worker_body(workid, taskidx, outqueue, inqueue):
+    def _worker_body(workid, alltasks, outqueue, inqueue):
         # avoid using WorkerMsg here: it's not picklable
         # if this body becomes too complex, make this a @classmethod and transfer
         # namedtuple._asdict().values() across to the parent
         while True:
             taskinfo = inqueue.get()
             if taskinfo is None:
-                msg = (workid, 'finished', None, None, None)
+                msg = (workid, 'finished', None, None, None, None)
                 outqueue.put(msg)
                 break
             try:
-                taskid, shared = taskinfo
-                task = taskidx[taskid]
+                taskidx, shared = taskinfo
+                task = alltasks[taskidx]
                 kwargs = get_kwargs(task)
+                ret = None
                 # support special case: argument-less task, for simplicity
                 if task.__code__.co_argcount == 0:
                     ret = task(**kwargs)
                 else:
                     ret = task(shared, **kwargs)
-                msg = (workid, 'taskdone', taskid, ret, None)
+                if isinstance(outqueue, multiprocessing.queues.Queue):
+                    if not _is_picklable(ret):
+                        raise AttributeError("Can't pickle callable return value")
+                    if not _is_picklable(shared):
+                        raise AttributeError("Can't pickle callable shared state")
+                msg = (workid, 'taskdone', taskidx, shared, ret, None)
                 outqueue.put(msg)
             except Exception:
                 extype, exval, extb = sys.exc_info()
@@ -117,35 +128,36 @@ class ProcessWorkerPool:
                 # picklable, but doesn't actually raise an exception, so we need
                 # to check picklability manually
                 if isinstance(outqueue, multiprocessing.queues.Queue):
-                    try:
-                        pickle.dumps(exval)
-                    except TypeError:
+                    if not _is_picklable(ret):
+                        ret = None
+                    if not _is_picklable(shared):
+                        shared = None
+                    if not _is_picklable(exval):
                         exval = None
-                    try:
-                        pickle.dumps(extb)
-                    except TypeError:
+                    if not _is_picklable(extb):
                         extb = None
-                msg = (workid, 'taskdone', taskid, None, (extype, exval, extb))
+                msg = (workid, 'taskdone', taskidx, shared, ret,
+                       (extype, exval, extb))
                 outqueue.put(msg)
 
                 # in case the above ever gets fixed:
                 #try:
-                #    outqueue.put((taskid, None, (extype, exval, extb)))
+                #    outqueue.put((taskidx, None, (extype, exval, extb)))
                 #except TypeError:
                 #    try:
-                #        outqueue.put((taskid, None, (extype, exval, None)))
+                #        outqueue.put((taskidx, None, (extype, exval, None)))
                 #    except TypeError:
-                #        outqueue.put((taskid, None, (extype, None, None)))
+                #        outqueue.put((taskidx, None, (extype, None, None)))
 
     def start_pool(self, workers=1, spare=1, alltasks=None):
         if self.alive_workers > 0:
             raise PoolError("Cannot re-start a running pool")
         if alltasks:
-            self.task_index = dict(((id(t), t) for t in alltasks))
+            self.task_map = dict(((id(t), t) for t in alltasks))
         self.workers = []
         for workid in range(workers):
             w = self._Worker(target=self._worker_body,
-                             args=(workid, self.task_index,
+                             args=(workid, self.task_map,
                                    self.resultq, self.taskq))
             w.start()
             self.workers.append(w)
@@ -165,7 +177,7 @@ class ProcessWorkerPool:
     def submit(self, task, shared):
         if self.shutting_down:
             raise PoolError("Cannot submit tasks, the pool is shutting down")
-        if id(task) not in self.task_index:
+        if id(task) not in self.task_map:
             raise PoolError(f"Cannot submit unknown task {task}, "
                              "it was not provided before pool start.")
         self.taskq.put((id(task), shared))
@@ -191,20 +203,25 @@ class ProcessWorkerPool:
     #       on the WorkerPool type
     def iter_results(self):
         while self.alive_workers > 0 or self.active_tasks > 0:
-            msg = self._WorkerMsg._make(self.resultq.get())
-            if msg.type == 'finished':
-                self.workers[msg.workid].join()
+            msg = self.resultq.get()
+            workid, msgtype, taskidx, shared, ret, excinfo = msg
+            if msgtype == 'finished':
+                self.workers[workid].join()
                 self.alive_workers -= 1
-            elif msg.type == 'taskdone':
-                task = self.task_index[msg.taskid]
+            elif msgtype == 'taskdone':
+                task = self.task_map[taskidx]
                 self.active_tasks -= 1
-                yield (task, msg.ret, msg.exc)
+                yield (task, shared, ret, excinfo)
             else:
                 raise RuntimeError(f"unexpected msg: {msg}")
 
 class ThreadWorkerPool(ProcessWorkerPool):
     _Queue = queue.Queue
     _Worker = threading.Thread
+
+# TODO: document callables (task) arguments;
+#        0-1 positional args (shared state)
+#        0 or more keyword args (passed in attrs)
 
 class Sched:
     def __init__(self, tasks=set()):
@@ -333,14 +350,17 @@ class Sched:
         for resinfo in pool.iter_results():
             yield resinfo
 
+            task, retshared, _, _ = resinfo
+            if retshared is None:
+                retshared = allshared[task]  # last known good
+            del allshared[task]
+
             # tasks to be scheduled next, unblocked by fresh provides
-            task, _, _ = resinfo
             next_tasks, children = self._satisfy_provides(self.deps, task)
 
             # propagate shared state from current to next tasks
             for child in children:
-                allshared[child].update(allshared[task])
-            del allshared[task]
+                allshared[child].update(retshared)
 
             # put new tasks on the frontline
             next_with_prio = (self._annotate_prio(t, counter) for t in next_tasks)
