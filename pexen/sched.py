@@ -1,3 +1,42 @@
+"""
+The scheduler takes callables and runs them according to their associated
+metadata (attributes), as provided by pexen.attr.
+
+The dependency resolution and scheduling algorithm itself is not deterministic
+unless the callable execution time (and all the platform parallelism mechanisms)
+are also deterministic.
+Rather than splitting work across a set amount of workers, it dynamically
+allocates callables (a.k.a. "tasks") to workers based on priority and worker
+availability, optimizing the overall execution time as much as possible by
+avoiding starvation.
+
+Under the hood, the core of the algorithm can be described like this:
+  1) Take any tasks that don't have any "requires" and put them on a "frontline"
+     (a list of tasks not blocked by a dependency)
+  2) Sort the frontline according to priority and/or other factors
+  3) Schedule (run) tasks on the frontline
+  4) As the tasks finish, collect their results and if they "provide" something,
+     satisfy any other tasks' requires with it
+  5) If this results in a task having all requires satisfied, add it to the
+     frontline
+  6) Go to 2
+
+This, amongst other things, gives the user the ability to assign a high priority
+to a long-running task, so that it's scheduled as soon as its dependencies are
+cleared.
+
+Usage:
+  s = Sched([callable1, callable2])
+  s.add_tasks([callable3])
+  results = s.run()
+  for res in results:
+    print(res)
+"""
+
+# TODO: document picklability callable limitations when using multiprocessing;
+#       when a callable itself creates a function object (ie. is a decorator)
+#       and tries to pass it, pickling will fail
+
 import sys
 import warnings
 from collections import namedtuple
@@ -31,36 +70,45 @@ class PoolError(SchedulerError):
     """Raised by ProcessWorkerPool or ThreadWorkerPool."""
     pass
 
-
 class ProcessWorkerPool:
     _Queue = multiprocessing.Queue
     _Worker = multiprocessing.Process
 
     _WorkerMsg = namedtuple('WorkerMsg', ['workid', 'type', 'taskid', 'ret', 'exc'])
 
-    def __init__(self, workers=1, spare=1):
+    def __init__(self, alltasks, workers=1, spare=1):
         self.alive_workers = 0
         self.taskq = self._Queue()
         self.resultq = self._Queue()
         self.active_tasks = 0
-        self.max_tasks = workers+spare
-        self.start_pool(workers)
+        # this serves two purposes:
+        # - it lets us pass a picklable integer into the worker instead of
+        #   a potentially unpicklable callable
+        # - it lets the worker return a picklable integer, which we then
+        #   transform back to the callable before returning it to the user
+        self.task_index = {}
+        self.start_pool(workers, spare, alltasks)
 
     @staticmethod
-    def _worker_body(workid, outqueue, inqueue):
+    def _worker_body(workid, taskidx, outqueue, inqueue):
         # avoid using WorkerMsg here: it's not picklable
         # if this body becomes too complex, make this a @classmethod and transfer
         # namedtuple._asdict().values() across to the parent
         while True:
             taskinfo = inqueue.get()
-            if not taskinfo:
+            if taskinfo is None:
                 msg = (workid, 'finished', None, None, None)
                 outqueue.put(msg)
                 break
             try:
-                taskid, task, shared = taskinfo
+                taskid, shared = taskinfo
+                task = taskidx[taskid]
                 kwargs = get_kwargs(task)
-                ret = task(shared, **kwargs)
+                # support special case: argument-less task, for simplicity
+                if task.__code__.co_argcount == 0:
+                    ret = task(**kwargs)
+                else:
+                    ret = task(shared, **kwargs)
                 msg = (workid, 'taskdone', taskid, ret, None)
                 outqueue.put(msg)
             except Exception:
@@ -89,17 +137,20 @@ class ProcessWorkerPool:
                 #    except TypeError:
                 #        outqueue.put((taskid, None, (extype, None, None)))
 
-    def start_pool(self, workers):
+    def start_pool(self, workers=1, spare=1, alltasks=None):
         if self.alive_workers > 0:
             raise PoolError("Cannot re-start a running pool")
+        if alltasks:
+            self.task_index = dict(((id(t), t) for t in alltasks))
         self.workers = []
         for workid in range(workers):
             w = self._Worker(target=self._worker_body,
-                             args=(workid, self.resultq, self.taskq))
+                             args=(workid, self.task_index,
+                                   self.resultq, self.taskq))
             w.start()
             self.workers.append(w)
         self.alive_workers = workers
-        self.task_index = {}  # so we don't pickle task objects
+        self.max_tasks = workers+spare
         self.shutting_down = False
 
     def full(self):
@@ -114,8 +165,10 @@ class ProcessWorkerPool:
     def submit(self, task, shared):
         if self.shutting_down:
             raise PoolError("Cannot submit tasks, the pool is shutting down")
-        self.task_index[id(task)] = task
-        self.taskq.put((id(task), task, shared))
+        if id(task) not in self.task_index:
+            raise PoolError(f"Cannot submit unknown task {task}, "
+                             "it was not provided before pool start.")
+        self.taskq.put((id(task), shared))
         self.active_tasks += 1
 
     def shutdown(self, wait=False):
@@ -217,7 +270,6 @@ class Sched:
         alldeps = self._build_deps(self.tasks)
         frontline = list((t for t in self.tasks if not get_requires(t)))
         for task in frontline:
-            print(f"frontline: {frontline}")
             # imagine we run the task <here>
             # now satisfy deps by this task's provides
             nexttasks, children = self._satisfy_provides(alldeps, task)
@@ -262,13 +314,15 @@ class Sched:
         secondary = next(cnt)
         return (primary, secondary, callobj)
 
-    def run(self, pool=None):
-        if not pool:
-            pool = ThreadWorkerPool()
+    def run(self, pooltype=ThreadWorkerPool, workers=1, spare=1):
+        if not self.tasks:
+            return
+
         counter = iter(range(len(self.tasks)))
         frontline = list((self._annotate_prio(t, counter)
                             for t in self.tasks if not get_requires(t)))
         allshared = dict(((task, self.default_shared.copy()) for task in self.tasks))
+        pool = pooltype(alltasks=self.tasks, workers=workers, spare=spare)
 
         frontline.sort()
         while frontline and not pool.full():
