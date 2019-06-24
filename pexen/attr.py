@@ -101,8 +101,14 @@ get_claims   = _gen_get_subattr('claims')
 get_priority = _gen_get_subattr('priority')
 get_kwargs   = _gen_get_subattr('kwargs')
 
-def func_attr(**kwargs):
-    def decorate_func_attr(func):
-        assign_attr(func, CallAttr(**kwargs))
+def func_attr(func=None, **kwargs):
+    if not func:
+        # called with kwargs
+        def decorate_func_attr(func):
+            assign_val(func, **kwargs)
+            return func
+        return decorate_func_attr
+    else:
+        # called as arg-less decorator
+        assign_val(func)
         return func
-    return decorate_func_attr

@@ -87,3 +87,5 @@ def module_factory(*args, callpath=[], startfrom, **kwargs):
             callables.extend(_extract_callables(mod, callpath))
 
     return callables
+
+# TODO: fstree_factory - walking directories for executable files
