@@ -65,6 +65,10 @@ def assign_attr(callobj, meta=None):
             setattr(callobj, ATTR_NAME, new)
             return new
 
+def has_attr(callobj):
+    """Return True if the object has valid metadata assigned."""
+    return hasattr(callobj, ATTR_NAME)
+
 def retrieve_attr(callobj):
     """Get a metadata attribute from an object."""
     return getattr(callobj, ATTR_NAME)
