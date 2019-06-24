@@ -162,7 +162,7 @@ class ProcessWorkerPool:
             w.start()
             self.workers.append(w)
         self.alive_workers = workers
-        self.max_tasks = workers+spare
+        self.max_tasks = workers + spare
         self.shutting_down = False
 
     def full(self):
@@ -179,7 +179,7 @@ class ProcessWorkerPool:
             raise PoolError("Cannot submit tasks, the pool is shutting down")
         if id(task) not in self.task_map:
             raise PoolError(f"Cannot submit unknown task {task}, "
-                             "it was not provided before pool start.")
+                            "it was not provided before pool start.")
         self.taskq.put((id(task), shared))
         self.active_tasks += 1
 
@@ -337,7 +337,7 @@ class Sched:
 
         counter = iter(range(len(self.tasks)))
         frontline = list((self._annotate_prio(t, counter)
-                            for t in self.tasks if not get_requires(t)))
+                         for t in self.tasks if not get_requires(t)))
         allshared = dict(((task, self.default_shared.copy()) for task in self.tasks))
         pool = pooltype(alltasks=self.tasks, workers=workers, spare=spare)
 
