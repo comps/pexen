@@ -174,7 +174,7 @@ class ProcessWorkerPool:
     def idlecnt(self):
         return self.max_tasks - self.active_tasks
 
-    def submit(self, task, shared):
+    def submit(self, task, shared=None):
         if self.shutting_down:
             raise PoolError("Cannot submit tasks, the pool is shutting down")
         if id(task) not in self.task_map:
@@ -222,6 +222,10 @@ class ThreadWorkerPool(ProcessWorkerPool):
 # TODO: document callables (task) arguments;
 #        0-1 positional args (shared state)
 #        0 or more keyword args (passed in attrs)
+
+# TODO: "claims" functionality/attr
+
+# TODO: task groups / exclusivity (based on pool restarting)
 
 class Sched:
     def __init__(self, tasks=set()):

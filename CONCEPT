@@ -3,11 +3,8 @@
     and choosing the right one
   - python 3 and no looking back (probably 3.6+)
   - coding standards TBD (single vs double quotes, data type hints, etc.)
-  - core of this project is specification, not implementation
   - this doc describes core principles / implementation as a module
     - CLI is another topic
-  - scap is just testing grounds for the concept, which would be later cleaned
-    and put as a separate runner / project in its own git repo
 
 - tree structure of tests / build or execution units / etc.
   - using native python principles - callables, objects, modules/packages
@@ -50,7 +47,7 @@
 
 - module execution parameters
   - each to-be-executed callable can have a special configuration attribute
-    - for by the scheduler / during execution
+    - for the scheduler / during execution
   - the attribute could be a dict(), but will probably be a custom data type
     - with helper functions, defaults, etc.
   - it is filled in and set by factory functions during factory-time
@@ -63,8 +60,6 @@
       - list/tuple for requires: logical OR between them
     - reverse-requires: make other callable (string/tag) depend on me
       - not sure if possible; cannot reference another callable
-    - provides_barrier: like provides, but all callables need to finish
-      - (all callables that define a certain string)
     - claims: strings locked exclusively for duration of run
     - callable path: see below
     - kwargs dict to be passed to the callable
