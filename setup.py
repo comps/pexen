@@ -14,7 +14,7 @@ setuptools.setup(
     url="https://github.com/comps/pexen",
     packages=["pexen"],
     setup_requires=["pytest-runner"],
-    tests_require=["pytest"],
+    tests_require=["pytest", "psutil"],
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
