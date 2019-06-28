@@ -190,6 +190,17 @@ def test_shared_kwargs(pool):
     res = list(s.run(pooltype=pool))
     assert res == [(dummy1, {'dummy1': 1234}, args, None)]
 
+# TODO: user pre-set shared
+#        s.add_shared(setup=123)
+#        moreshared = {'cleanup': 234, 'other': 345}
+#        s.add_shared(**moreshared)
+
+# TODO: broken dependencies
+#       - requiring something that was not provided -> exception
+#       - providing something that was not required -> warning
+
+# TODO: disabling/enabling of dep checking before run (__debug__)
+
 #
 # Picklability checks
 #
@@ -263,6 +274,8 @@ def test_pool_reuse(pool, reuse_task_list):
     p.shutdown(wait=True)
     res = list(p.iter_results())
     assert res == [(dummy2, None, None, None)]
+
+# TODO: multiple result iterators (multiple iter_results() calls)
 
 #
 # Corner cases

@@ -73,10 +73,10 @@ def _is_picklable(obj):
     except (TypeError, AttributeError):
         return False
 
-# TODO: document usage; also mention:
-# - what does iter_results return (in the tuple)
-# - that returned shared will be None when pickling fails
-#   - also that ret will be None when pickling fails
+# TODO: create a NamedTuple for the tuple returned by iter_results
+# TODO: also document that by delaying iteration of iter_results, the user
+#       can effectively throttle the execution as no new items will be scheduled
+#       until the user gives us back control
 class ProcessWorkerPool:
     _Queue = multiprocessing.Queue
     _Worker = multiprocessing.Process
@@ -149,6 +149,18 @@ class ProcessWorkerPool:
                 #    except TypeError:
                 #        outqueue.put((taskidx, None, (extype, None, None)))
 
+    # TODO: document the idea of 'spare'; a buffer of pre-scheduled tasks ready
+    #       to be executed and automatically picked by the workers without any
+    #       work from the parent process (without iter_results needing to run);
+    #       used exactly like make -j5 (on 4-core machine), to avoid worker
+    #       starvation when the parent is busy processing results or scheduling
+    #       new tasks
+    #       - too small value can result in starvation if the tasks execute too
+    #         quickly and result processing takes a lot of time
+    #       - too large value causes suboptimal ordering; high priority tasks
+    #         are scheduled *after* these queued tasks, any mutexes (claims) are
+    #         held even if the queued task is not yet running, etc.
+
     def start_pool(self, workers=1, spare=1, alltasks=None):
         if self.alive_workers > 0:
             raise PoolError("Cannot re-start a running pool")
@@ -196,7 +208,7 @@ class ProcessWorkerPool:
 
     # if you need something asynchronous instead of the blocking iter_results,
     # ie. something returning a Queue, you may need to spawn a new thread to
-    # manage the queue and call active_tasks -= 1 for each added item
+    # manage the queue
 
     # TODO: document that iter_results can be called multiple times to get
     #       multiple iterators, each being thread-safe or process-safe, depending
@@ -218,10 +230,6 @@ class ProcessWorkerPool:
 class ThreadWorkerPool(ProcessWorkerPool):
     _Queue = queue.Queue
     _Worker = threading.Thread
-
-# TODO: document callables (task) arguments;
-#        0-1 positional args (shared state)
-#        0 or more keyword args (passed in attrs)
 
 # TODO: "claims" functionality/attr
 
@@ -365,3 +373,5 @@ class Sched:
 
             if not frontline and not self.deps:
                 pool.shutdown()
+
+    # TODO: shutdown func in case user wants to abort; expose pool shutdown()?
