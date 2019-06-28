@@ -313,20 +313,6 @@ class Sched:
         """Pre-set key/values in the default shared space."""
         self.default_shared.update(kwargs)
 
-    def run_simple(self):
-        # tasks without requires
-        frontline = list((t for t in self.tasks if not get_requires(t)))
-        allshared = dict(((task, self.default_shared.copy()) for task in self.tasks))
-        for task in frontline:
-            shared = allshared[task]
-            kwargs = get_kwargs(task)
-            yield task(shared, **kwargs)
-            nexttasks, children = self._satisfy_provides(self.deps, task)
-            for child in children:
-                allshared[child].update(allshared[task])
-            del allshared[task]
-            frontline.extend(nexttasks)
-
     @staticmethod
     def _annotate_prio(callobj, cnt):
         primary = get_priority(callobj)
