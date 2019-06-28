@@ -1,0 +1,169 @@
+NOTE: These are some of my personal notes used during development, provided
+      here only for historical reference and amusement, mostly for me.
+      Some of them are in the Czech language, so don't freak out.
+
+      Also, they are by NO MEANS up to date, many of them don't match current
+      implementation.
+      If you're looking for sane documentation, look elsewhere.
+
+-------------------------------------------------------------------------------
+
+
+- requires/provides a vubec cela logika zanorovani by mela fungovat jako
+  lokalni promenne; pokud jsem hluboko v dir strukture a chci zaretezit
+  dva callably, mel bych mit moznost rict
+    run.requires = ["build"]
+    build.provides = ["build"]
+  aniz bych konfliktil s necim globalnim
+  ... vubec cela logika zpracovavani/spousteni by mela k zanorovani pristupovat
+      jako ruzne jazyky ke scope promennych (napr. python module namespacy)
+
+- a callable automatically provides: itself (as an obj)
+  - another func can require: the callable
+    - ie. when both are generated in one factory func
+
+
+- another callable attr - weight
+  - default 1.0 (float)
+  - user can specify a lower/higher value depending on estimated callable runtime
+  - the scheduling algorithm weights callables by how much they're required by other callables
+    - (eg. how much others would they unblock)
+    - this is not always best, especially if run time differs greatly between callables
+  - if the user-provided weight is high enough, the callable is scheduled sooner
+    - and hopefully finishes alongside others shorter callables
+
+- graph weighting algo:
+  - start according to user defined order
+  - traverse all deps, just like during regular dep resolution
+  - as you traverse, assign weights to each node
+  - for every level of dependencies, increment the weight by 1 for ALL previous parents
+  - so that ie. A->B->C ends up with weights 3, 2, 1, respectively
+  - if you encounter a node with existing weight, add its value to all previous parents and break
+
+  - ie.
+        A --> B --> C
+        X ----^
+
+    - start from A, assign 1 to it
+    - go into B, assign 1 to it, increment A to 2
+    - go into C, assign 1 to it, increment B to 2, A to 3
+    - start from X, assign 1 to it
+    - go into B, don't change its value, add B to X, 2+1, resulting in X having 3
+  - reorder the entire list of callables according to this; lowest values first
+    - allow user to specify/modify the weights per-callable
+  - when running the pool, traverse the sorted array and check each callable if it can run
+    - we should get a positive match close to start of the array
+
+- alternate multi-queue approach
+  - identify leaf nodes of the dependency graph
+  - for each leaf node
+    - create a list J of parent nodes all the way to root, leaf node first
+    - insert the list J into a bigger list of lists, K
+  - also have a list of "running" tasks L, and "finished" tasks M
+    - (the M list prevents from running shared parents multiple times)
+  - during runtime
+    - to pick a task, traverse all [0] members of K, for each:
+      - check if it is in L or M
+        - if not, add it to L and run it
+          - when finished, add it to M and shift the J it's in
+        - if it is in both, it's an already-run shared parent
+          - shift the examined J and try [0] again
+
+
+- alternate provides-requires centric approach
+  - each task specifies requires/provides list of strings
+  - these are turned into objects with "requires" and "provides" links to tasks
+  - ie.
+            A
+            |    provides
+            v
+           [X]
+            ^
+           /|\   requires
+          C D E
+           \|/   requires
+            v
+           [Y]
+            ^
+            |    provides
+            B
+
+  - one queue (list) is used for ready-to-run callables
+  - leaf nodes (no requires) are added to the list and run
+  - when a callable finishes, if it provides something:
+    - go through all callables which have the thing as requires
+    - remove it from their requires lists
+      - if there is nothing more left in their requires, add them to ready-to-run
+    - (remove the object linking provides/requires for this specific thing)
+
+
+
+- per-callable maximum concurrent workers running
+  - most of the test suite might want to run with 100 workers, but some
+    callables stress the OS significantly more, so they can run only on
+    20 workers at most, the rest needs to wait
+  - same logic as for single-worker (sequential) execution
+    - maxworkers=1
+
+- provides as semaphore/counter
+  - probably not decreased by requires
+  - only checked for >= a specific value given with a require
+  - useful if multiple callables provide the same resource and other callables
+    need a specific amount of it, without consuming it
+
+  - alternatively:
+    - requires/provides can specify an integer value, an amount of resource
+    - for requires, this is how much the callable consumes prior to running
+    - for provides, how much the callable gives to those in need
+      - no value = infinite (never runs out)
+    - could be easily checked if all provides satisfy all requires
+
+    - "claims" attr je specialnim pripadem ^^^^
+      - dal by se implementovat jako
+          consumes: [("auditd", 1)]
+          provides: [("auditd", 1)]
+      - pozor na prvni spusteni - nic neposkytuje "auditd" automaticky
+
+
+- task/callable groups
+  - group jako dalsi callable attribut
+  - exekuce callable bude odlozena dokud vsichni clenove groupy nebudou mit
+    splneny requires
+  - pak se vsichni z groupy pridaji do frontline
+  - alternativni nazev: crowd
+  - koncept maxworkers (nahore) nedava moc smysl per-task
+    - pokud by normalne bezelo 100 workeru a task potreboval max 30,
+      pak by se vypinalo 70 workeru jenom aby ten jeden task mohl bezet
+    - pak se workeri opet rozjedou na 100
+    - pak se ukaze dalsi "podobny" task ktery chce max 30 a vypinani se opakuje
+    - ...
+    - v praxi se tyto limitace vyskytuji u skupin podobnych testu
+      - pokud bude koncept maxworkers asociovan s groupou namisto jednoho tasku,
+        muze se pustit cela groupa
+      - dodatecne, co takhle exkluzivni beh jedne groupy? .. TODO
+
+  - task groups (alt.)
+    - groupy jsou vzdy exkluzivni; scheduler pocka na dokonceni vseho predtim,
+      nez pusti groupu, a groupa musi skoncit predtim, nez se pusti neco jineho
+    - implementacne to muzou byt nezavisle Pooly
+      - to dava moznost mit primarni pool jako thready a groupu jako forky
+
+
+- shared state
+  - shared only from parent to child
+    - across task->provides->requires->task
+  - ie. if task A provides 'abc' and it unblocks tasks B, C, D,
+    then each of B,C,D will get a copy of A's shared state (namespace)
+  - how it works:
+    - in alldeps, each task has its own set of requires across alldeps keys
+      - instead of just requires, have a tuple (sharedstate, requires)
+        - shared/updated across all alldeps keys relevant to the task
+    - no need to ever lock 
+    - no need to ever copy the share state dict
+      - when a task ends, it will
+        - provide its resource to all tasks that have it in requires
+        - do dict update() of each task's dict sharedstate with its own
+          shared state
+          - the result stays with the task that will be run, which already has
+            its own sharedstate dict, which we just modified
+
