@@ -18,3 +18,4 @@ def test_module_factory():
     res = [x() for x in funcs]
     assert all([i in res for i in range(1,5)])  # dummies
     assert all([i in res for i in range(100,110)])  # minidummies
+    # TODO: assert returned callpaths

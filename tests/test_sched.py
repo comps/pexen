@@ -201,6 +201,12 @@ def test_shared_kwargs(pool):
 
 # TODO: disabling/enabling of dep checking before run (__debug__)
 
+# TODO: running tasks that were not present when the pool started
+
+# TODO: restarting the Sched instance by calling .run() again
+
+# TODO: calling .run() multiple times (before previous one finishes)
+
 #
 # Picklability checks
 #
@@ -294,3 +300,9 @@ def test_kwargs_without_args(pool):
     extype, exval, extb = dummy1res[3]
     assert extype == TypeError
     assert "unexpected keyword argument" in str(exval)
+
+#
+# Performance tests
+#
+
+# TODO: schedule 10000+ of tasks, both threading and mp
