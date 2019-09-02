@@ -7,19 +7,20 @@ import time
 import psutil
 import warnings
 
-from pexen import attr, sched, util
+from pexen import sched, util
+from pexen.sched.pool import ThreadWorkerPool, ProcessWorkerPool
 
 parametrize_pool_both = functools.partial(
     pytest.mark.parametrize,
-    'pool', (sched.ThreadWorkerPool, sched.ProcessWorkerPool)
+    'pool', (ThreadWorkerPool, ProcessWorkerPool)
 )
 parametrize_pool_thread = functools.partial(
     pytest.mark.parametrize,
-    'pool', (sched.ThreadWorkerPool,)
+    'pool', (ThreadWorkerPool,)
 )
 parametrize_pool_process = functools.partial(
     pytest.mark.parametrize,
-    'pool', (sched.ProcessWorkerPool,)
+    'pool', (ProcessWorkerPool,)
 )
 
 @pytest.fixture(autouse=True)
@@ -139,14 +140,14 @@ def test_return_exception(pool):
 @parametrize_pool_both()
 def test_priority(pool):
     dummy1 = create_dummy('dummy1')
-    attr.assign_val(dummy1, priority=3)
+    sched.attr.assign_val(dummy1, priority=3)
     dummy2 = create_dummy('dummy2')
-    attr.assign_val(dummy2, priority=4)
+    sched.attr.assign_val(dummy2, priority=4)
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
     assert res == [(dummy1, {}, None, None), (dummy2, {}, None, None)]
-    attr.assign_val(dummy1, priority=4)
-    attr.assign_val(dummy2, priority=3)
+    sched.attr.assign_val(dummy1, priority=4)
+    sched.attr.assign_val(dummy2, priority=3)
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
     assert res == [(dummy2, {}, None, None), (dummy1, {}, None, None)]
@@ -154,9 +155,9 @@ def test_priority(pool):
 @parametrize_pool_both()
 def test_requires_provides(pool):
     dummy1 = create_dummy('dummy1')
-    attr.assign_val(dummy1, requires=['dep'], priority=1)
+    sched.attr.assign_val(dummy1, requires=['dep'], priority=1)
     dummy2 = create_dummy('dummy2')
-    attr.assign_val(dummy2, provides=['dep'], priority=2)
+    sched.attr.assign_val(dummy2, provides=['dep'], priority=2)
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
     assert res == [(dummy2, {}, None, None), (dummy1, {}, None, None)]
@@ -164,9 +165,9 @@ def test_requires_provides(pool):
 @parametrize_pool_both()
 def test_shared(pool):
     dummy1 = create_dummy_with_shared('dummy1', 2345)
-    attr.assign_val(dummy1, requires=['dep'])
+    sched.attr.assign_val(dummy1, requires=['dep'])
     dummy2 = create_dummy_with_shared('dummy2', 1234)
-    attr.assign_val(dummy2, provides=['dep'])
+    sched.attr.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
     dummy2res, dummy1res = res  # order guaranteed by dep
@@ -177,7 +178,7 @@ def test_shared(pool):
 def test_kwargs(pool):
     dummy1 = create_dummy_with_kwargs('dummy1')
     args = {'testargs': 1234}
-    attr.assign_val(dummy1, kwargs=args)
+    sched.attr.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
     assert res == [(dummy1, {}, args, None)]
@@ -186,7 +187,7 @@ def test_kwargs(pool):
 def test_shared_kwargs(pool):
     dummy1 = create_dummy_shared_kwargs('dummy1', 1234)
     args = {'testargs': 2345}
-    attr.assign_val(dummy1, kwargs=args)
+    sched.attr.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
     assert res == [(dummy1, {'dummy1': 1234}, args, None)]
@@ -194,9 +195,9 @@ def test_shared_kwargs(pool):
 @parametrize_pool_both()
 def test_failed_parent(pool):
     dummy1 = create_dummy('dummy1')
-    attr.assign_val(dummy1, requires=['dep'])
+    sched.attr.assign_val(dummy1, requires=['dep'])
     dummy2 = create_dummy_with_exception('dummy2', NameError)
-    attr.assign_val(dummy2, provides=['dep'])
+    sched.attr.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
     with warnings.catch_warnings(record=True) as caught:
         res = list(s.run(pooltype=pool))
@@ -317,7 +318,7 @@ def test_pool_reuse(pool, reuse_task_list):
 def test_kwargs_without_args(pool):
     dummy1 = create_dummy('dummy1')
     args = {'testargs': 1234}
-    attr.assign_val(dummy1, kwargs=args)
+    sched.attr.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
     dummy1res, = res
@@ -329,10 +330,10 @@ def test_kwargs_without_args(pool):
 # invalid data type being passed as attr
 def test_invalid_attr_type():
     dummy1 = create_dummy('dummy1')
-    attr.assign_val(dummy1, requires=set('dep'))  # same type
-    attr.assign_val(dummy1, requires=['dep'])     # allowed conversion
+    sched.attr.assign_val(dummy1, requires=set('dep'))  # same type
+    sched.attr.assign_val(dummy1, requires=['dep'])     # allowed conversion
     with pytest.raises(AttributeError) as exc:
-        attr.assign_val(dummy1, requires='dep')   # denied conversion
+        sched.attr.assign_val(dummy1, requires='dep')   # denied conversion
     assert "<class 'str'> cannot be used for requires" in str(exc.value)
 
 

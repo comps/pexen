@@ -6,7 +6,8 @@ import multiprocessing as mp
 import time
 import psutil
 
-from pexen import attr, factory
+from pexen import factory
+from pexen.sched import attr
 from tests import module_factory_tree
 
 def test_module_factory():

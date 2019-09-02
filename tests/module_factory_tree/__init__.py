@@ -1,4 +1,4 @@
-from pexen import attr
+from pexen.sched import attr
 
 @attr.func_attr
 def dummy1():

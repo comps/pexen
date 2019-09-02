@@ -1,4 +1,4 @@
-from pexen import attr
+from pexen.sched import attr
   
 @attr.func_attr(provides=["dummy2done"])
 def dummy2():

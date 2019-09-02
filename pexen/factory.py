@@ -2,7 +2,7 @@ import pkgutil
 import inspect
 import importlib
 
-from . import attr
+from .sched import attr
 
 FACTORY_FLAG = 'pexen_is_factory'
 

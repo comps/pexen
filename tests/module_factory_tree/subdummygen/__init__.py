@@ -1,4 +1,5 @@
-from pexen import attr, factory
+from pexen import factory
+from pexen.sched import attr
   
 @attr.func_attr(requires=["dummy2done"])
 def dummy3():
