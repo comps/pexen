@@ -154,9 +154,9 @@ def test_priority(pool):
 @parametrize_pool_both()
 def test_requires_provides(pool):
     dummy1 = create_dummy('dummy1')
-    attr.assign_val(dummy1, requires='dep', priority=1)
+    attr.assign_val(dummy1, requires=['dep'], priority=1)
     dummy2 = create_dummy('dummy2')
-    attr.assign_val(dummy2, provides='dep', priority=2)
+    attr.assign_val(dummy2, provides=['dep'], priority=2)
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
     assert res == [(dummy2, {}, None, None), (dummy1, {}, None, None)]
@@ -164,9 +164,9 @@ def test_requires_provides(pool):
 @parametrize_pool_both()
 def test_shared(pool):
     dummy1 = create_dummy_with_shared('dummy1', 2345)
-    attr.assign_val(dummy1, requires='dep')
+    attr.assign_val(dummy1, requires=['dep'])
     dummy2 = create_dummy_with_shared('dummy2', 1234)
-    attr.assign_val(dummy2, provides='dep')
+    attr.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
     dummy2res, dummy1res = res  # order guaranteed by dep
@@ -194,9 +194,9 @@ def test_shared_kwargs(pool):
 @parametrize_pool_both()
 def test_failed_parent(pool):
     dummy1 = create_dummy('dummy1')
-    attr.assign_val(dummy1, requires='dep')
+    attr.assign_val(dummy1, requires=['dep'])
     dummy2 = create_dummy_with_exception('dummy2', NameError)
-    attr.assign_val(dummy2, provides='dep')
+    attr.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
     with warnings.catch_warnings(record=True) as caught:
         res = list(s.run(pooltype=pool))
@@ -231,6 +231,9 @@ def test_failed_parent(pool):
 #       - IOW make sure the runner doesn't go into "dont add any more and wait
 #         for running tasks to finish" mode purely because no more tasks can be
 #         run at this time
+
+# TODO: implement and test type checking for pexen.attr.assign_val and friends,
+#       so that the user does not accidentally silently cast 'dep' as ['d','e','p']
 
 #
 # Picklability checks
