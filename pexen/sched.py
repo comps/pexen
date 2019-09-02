@@ -73,7 +73,12 @@ def _is_picklable(obj):
     except (TypeError, AttributeError):
         return False
 
-# TODO: create a NamedTuple for the tuple returned by iter_results
+# used internally by WorkerPool classes
+_PoolWorkerMsg = namedtuple('_PoolWorkerMsg', ['workid', 'msgtype', 'taskidx',
+                                             'shared', 'ret', 'excinfo'])
+# TODO: use Python 3.7 namedtuple defaults
+_PoolWorkerMsg.__new__.__defaults__ = (None,) * len(_PoolWorkerMsg._fields)
+
 # TODO: also document that by delaying iteration of iter_results, the user
 #       can effectively throttle the execution as no new items will be scheduled
 #       until the user gives us back control
@@ -96,13 +101,10 @@ class ProcessWorkerPool:
 
     @staticmethod
     def _worker_body(workid, alltasks, outqueue, inqueue):
-        # avoid using WorkerMsg here: it's not picklable
-        # if this body becomes too complex, make this a @classmethod and transfer
-        # namedtuple._asdict().values() across to the parent
         while True:
             taskinfo = inqueue.get()
             if taskinfo is None:
-                msg = (workid, 'finished', None, None, None, None)
+                msg = _PoolWorkerMsg(workid, 'finished')
                 outqueue.put(msg)
                 break
             try:
@@ -120,7 +122,7 @@ class ProcessWorkerPool:
                         raise AttributeError("Can't pickle callable return value")
                     if not _is_picklable(shared):
                         raise AttributeError("Can't pickle callable shared state")
-                msg = (workid, 'taskdone', taskidx, shared, ret, None)
+                msg = _PoolWorkerMsg(workid, 'taskdone', taskidx, shared, ret)
                 outqueue.put(msg)
             except Exception:
                 extype, exval, extb = sys.exc_info()
@@ -136,8 +138,8 @@ class ProcessWorkerPool:
                         exval = None
                     if not _is_picklable(extb):
                         extb = None
-                msg = (workid, 'taskdone', taskidx, shared, ret,
-                       (extype, exval, extb))
+                msg = _PoolWorkerMsg(workid, 'taskdone', taskidx, shared, ret,
+                                    (extype, exval, extb))
                 outqueue.put(msg)
 
                 # in case the above ever gets fixed:
@@ -213,17 +215,17 @@ class ProcessWorkerPool:
     # TODO: document that iter_results can be called multiple times to get
     #       multiple iterators, each being thread-safe or process-safe, depending
     #       on the WorkerPool type
+    #  TODO: the alive_workers / active_tasks is not thread safe; add a threading.lock
     def iter_results(self):
         while self.alive_workers > 0 or self.active_tasks > 0:
             msg = self.resultq.get()
-            workid, msgtype, taskidx, shared, ret, excinfo = msg
-            if msgtype == 'finished':
-                self.workers[workid].join()
+            if msg.msgtype == 'finished':
+                self.workers[msg.workid].join()
                 self.alive_workers -= 1
-            elif msgtype == 'taskdone':
-                task = self.task_map[taskidx]
+            elif msg.msgtype == 'taskdone':
+                task = self.task_map[msg.taskidx]
                 self.active_tasks -= 1
-                yield (task, shared, ret, excinfo)
+                yield (task, msg.shared, msg.ret, msg.excinfo)
             else:
                 raise RuntimeError(f"unexpected msg: {msg}")
 
