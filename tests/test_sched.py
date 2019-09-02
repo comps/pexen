@@ -207,7 +207,7 @@ def test_failed_parent(pool):
     assert isinstance(exval, NameError)
     assert len(caught) == 1  # only one warning
     assert caught[0].category == util.PexenWarning
-    assert '1 tasks skipped due to unmet deps' in repr(caught[0].message)
+    assert '1 tasks skipped due to unmet deps' in str(caught[0].message)
 
 # TODO: user pre-set shared
 #        s.add_shared(setup=123)
@@ -231,9 +231,6 @@ def test_failed_parent(pool):
 #       - IOW make sure the runner doesn't go into "dont add any more and wait
 #         for running tasks to finish" mode purely because no more tasks can be
 #         run at this time
-
-# TODO: implement and test type checking for pexen.attr.assign_val and friends,
-#       so that the user does not accidentally silently cast 'dep' as ['d','e','p']
 
 #
 # Picklability checks
@@ -328,6 +325,16 @@ def test_kwargs_without_args(pool):
     extype, exval, extb = dummy1res[3]
     assert extype == TypeError
     assert "unexpected keyword argument" in str(exval)
+
+# invalid data type being passed as attr
+def test_invalid_attr_type():
+    dummy1 = create_dummy('dummy1')
+    attr.assign_val(dummy1, requires=set('dep'))  # same type
+    attr.assign_val(dummy1, requires=['dep'])     # allowed conversion
+    with pytest.raises(AttributeError) as exc:
+        attr.assign_val(dummy1, requires='dep')   # denied conversion
+    assert "<class 'str'> cannot be used for requires" in str(exc.value)
+
 
 #
 # Performance tests

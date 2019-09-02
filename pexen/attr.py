@@ -28,10 +28,24 @@ class CallAttr:
         else:
             object.__getattribute__(self, name)
 
+    @staticmethod
+    def _safe_cast(field, dtype, svalue):
+        """Allow only some convenient type changes."""
+        # any type to itself
+        if dtype == type(svalue):
+            return svalue
+        # list -> set
+        if issubclass(dtype, set) and isinstance(svalue, list):
+            return dtype(svalue)
+        # set -> list
+        if issubclass(dtype, list) and isinstance(svalue, set):
+            return dtype(svalue)
+        raise AttributeError(f"{type(svalue)} cannot be used for {field}")
+
     def __setattr__(self, name, value):
         if name in self.data:
             field = self.data[name]
-            self.data[name] = type(field)(value)
+            self.data[name] = self._safe_cast(name, type(field), value)
         else:
             raise AttributeError(f"{name} is not a valid metadata field")
 
