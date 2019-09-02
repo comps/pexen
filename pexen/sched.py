@@ -216,9 +216,8 @@ class ProcessWorkerPool:
     # manage the queue
 
     # TODO: document that iter_results can be called multiple times to get
-    #       multiple iterators, each being thread-safe or process-safe, depending
-    #       on the WorkerPool type
-    #  TODO: the alive_workers / active_tasks is not thread safe; add a threading.lock
+    #       multiple iterators
+    #       also document that they are NOT thread or process safe
     def iter_results(self):
         while self.alive_workers > 0 or self.active_tasks > 0:
             msg = self.resultq.get()
@@ -376,8 +375,12 @@ class Sched:
                 pool.submit(task, shared)
 
             # there may still be unsatisfied self.deps if a task failed
-            # TODO: should we throw a warning or something?
             if not frontline:
+                remain = len(self.deps)
+                if remain > 0:
+                    warnings.warn(f"{remain} tasks skipped due to unmet deps "
+                                   "caused by parent exception",
+                                  category=util.PexenWarning)
                 pool.shutdown()
 
     # TODO: shutdown func in case user wants to abort; expose pool shutdown()?

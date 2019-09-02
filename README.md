@@ -159,6 +159,22 @@ it could be ported to python 2.7 as it currently uses only basic `threading`
 and `multiprocessing` features (eg. no `futures`), at the expense of code
 readability.
 
+* Parallel result pipelining
+  * Wish
+    * A thread-safe process-safe interface to get results from running tasks
+    * The user can then spawn a separate custom pool of threads/processes that
+      query this interface and post-process results returned from tasks, in
+      parallel
+      * While other tasks are still running, not after everything finishes
+  * Why Not
+    * There are process-unsafe metadata returned to the user, namely the
+      callable objects that were executed, exception objects, etc.
+      * These are safe to pass only to the thread/process that added the task
+    * There is a simple workaround: simply take care of the metadata in the
+      thread that added the tasks and pass on picklable data (ie. retvals
+      from the executed callables) to the custom process pool for further
+      post-processing
+
 ## Wishlist
 
 * Scheduling groups of exclusivity

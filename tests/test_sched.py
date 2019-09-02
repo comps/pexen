@@ -5,8 +5,9 @@ import threading as thr
 import multiprocessing as mp
 import time
 import psutil
+import warnings
 
-from pexen import attr, sched
+from pexen import attr, sched, util
 
 parametrize_pool_both = functools.partial(
     pytest.mark.parametrize,
@@ -190,6 +191,24 @@ def test_shared_kwargs(pool):
     res = list(s.run(pooltype=pool))
     assert res == [(dummy1, {'dummy1': 1234}, args, None)]
 
+@parametrize_pool_both()
+def test_failed_parent(pool):
+    dummy1 = create_dummy('dummy1')
+    attr.assign_val(dummy1, requires='dep')
+    dummy2 = create_dummy_with_exception('dummy2', NameError)
+    attr.assign_val(dummy2, provides='dep')
+    s = sched.Sched([dummy2, dummy1])
+    with warnings.catch_warnings(record=True) as caught:
+        res = list(s.run(pooltype=pool))
+    assert len(res) == 1  # dummy1 didn't run
+    assert res[0][:3] == (dummy2, {}, None)
+    extype, exval, extb = res[0][3]
+    assert extype == NameError
+    assert isinstance(exval, NameError)
+    assert len(caught) == 1  # only one warning
+    assert caught[0].category == util.PexenWarning
+    assert '1 tasks skipped due to unmet deps' in repr(caught[0].message)
+
 # TODO: user pre-set shared
 #        s.add_shared(setup=123)
 #        moreshared = {'cleanup': 234, 'other': 345}
@@ -212,8 +231,6 @@ def test_shared_kwargs(pool):
 #       - IOW make sure the runner doesn't go into "dont add any more and wait
 #         for running tasks to finish" mode purely because no more tasks can be
 #         run at this time
-
-# TODO: failing task does not "provide" its children, throws a warning
 
 #
 # Picklability checks
@@ -290,7 +307,6 @@ def test_pool_reuse(pool, reuse_task_list):
     assert res == [(dummy2, None, None, None)]
 
 # TODO: multiple result iterators (multiple iter_results() calls)
-# TODO: multiple iterator thread safety
 
 #
 # Corner cases
