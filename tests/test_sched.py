@@ -207,6 +207,14 @@ def test_shared_kwargs(pool):
 
 # TODO: calling .run() multiple times (before previous one finishes)
 
+# TODO: using spare= larger than nr. of schedulable tasks; check that the runner
+#       logic doesn't end prematurely and waits for dependencies to be resolved
+#       - IOW make sure the runner doesn't go into "dont add any more and wait
+#         for running tasks to finish" mode purely because no more tasks can be
+#         run at this time
+
+# TODO: failing task does not "provide" its children, throws a warning
+
 #
 # Picklability checks
 #
@@ -282,6 +290,7 @@ def test_pool_reuse(pool, reuse_task_list):
     assert res == [(dummy2, None, None, None)]
 
 # TODO: multiple result iterators (multiple iter_results() calls)
+# TODO: multiple iterator thread safety
 
 #
 # Corner cases

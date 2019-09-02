@@ -79,6 +79,9 @@ _PoolWorkerMsg = namedtuple('_PoolWorkerMsg', ['workid', 'msgtype', 'taskidx',
 # TODO: use Python 3.7 namedtuple defaults
 _PoolWorkerMsg.__new__.__defaults__ = (None,) * len(_PoolWorkerMsg._fields)
 
+# taskres returned to the caller
+PoolTaskRes = namedtuple('PoolTaskRes', ['task', 'shared', 'ret', 'excinfo'])
+
 # TODO: also document that by delaying iteration of iter_results, the user
 #       can effectively throttle the execution as no new items will be scheduled
 #       until the user gives us back control
@@ -225,7 +228,7 @@ class ProcessWorkerPool:
             elif msg.msgtype == 'taskdone':
                 task = self.task_map[msg.taskidx]
                 self.active_tasks -= 1
-                yield (task, msg.shared, msg.ret, msg.excinfo)
+                yield PoolTaskRes(task, msg.shared, msg.ret, msg.excinfo)
             else:
                 raise RuntimeError(f"unexpected msg: {msg}")
 
@@ -347,33 +350,34 @@ class Sched:
             shared = allshared[task]
             pool.submit(task, shared)
 
-        for resinfo in pool.iter_results():
-            yield resinfo
+        for taskres in pool.iter_results():
+            yield taskres
 
-            task, retshared, _, _ = resinfo
-            if retshared is None:
-                retshared = allshared[task]  # last known good
-            del allshared[task]
+            # if it didn't fail, schedule its children
+            if not taskres.excinfo:
+                # tasks to be scheduled next, unblocked by fresh provides
+                next_tasks, children = self._satisfy_provides(self.deps, taskres.task)
 
-            # tasks to be scheduled next, unblocked by fresh provides
-            next_tasks, children = self._satisfy_provides(self.deps, task)
+                # propagate shared state from current to next tasks
+                for child in children:
+                    allshared[child].update(taskres.shared)
 
-            # propagate shared state from current to next tasks
-            for child in children:
-                allshared[child].update(retshared)
+                # put new tasks on the frontline
+                next_with_prio = (self._annotate_prio(t, counter) for t in next_tasks)
+                frontline.extend(next_with_prio)
+                frontline.sort()
 
-            # put new tasks on the frontline
-            next_with_prio = (self._annotate_prio(t, counter) for t in next_tasks)
-            frontline.extend(next_with_prio)
+            del allshared[taskres.task]
 
             # and schedule as much as we can
-            frontline.sort()
             while frontline and not pool.full():
                 _, _, task = frontline.pop(0)
                 shared = allshared[task]
                 pool.submit(task, shared)
 
-            if not frontline and not self.deps:
+            # there may still be unsatisfied self.deps if a task failed
+            # TODO: should we throw a warning or something?
+            if not frontline:
                 pool.shutdown()
 
     # TODO: shutdown func in case user wants to abort; expose pool shutdown()?
