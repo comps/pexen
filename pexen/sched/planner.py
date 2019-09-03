@@ -137,6 +137,36 @@ class SharedMap:
             if task in self.map:
                 self.map[task].update(data)
 
+class PriorityQueue:
+    """Store tasks like a heapq, but using priority from sched meta."""
+    def __init__(self, tasks=[]):
+        self.counter = 0
+        self.queue = []
+        if tasks:
+            self.add(tasks)
+
+    def __len__(self):
+        return len(self.queue)
+
+    def _gen_unique_id(self):
+        self.counter += 1
+        return self.counter
+
+    def add(self, tasks):
+        """Add new tasks to the queue and sort it."""
+        for task in tasks:
+            prio = get_priority(task)
+            # give each callobj a unique integer, to prevent list.sort()
+            # comparing actual task objects if their primary prio is the same
+            secprio = self._gen_unique_id()
+            self.queue.append((prio, secprio, task))
+        self.queue.sort()
+
+    def pop(self):
+        """Pop one most important task."""
+        _, _, task = self.queue.pop(0)
+        return task
+
 # TODO: "claims" functionality/attr
 
 # TODO: task groups / exclusivity (based on pool restarting)
@@ -163,27 +193,16 @@ class Sched:
         """Pre-set key/values in the default shared space."""
         self.default_shared.update(kwargs)
 
-    @staticmethod
-    def _annotate_prio(callobj, cnt):
-        primary = get_priority(callobj)
-        # give each callobj a unique integer, to prevent list.sort() / sorted()
-        # comparing actual callable objects if their primary prio is the same
-        secondary = next(cnt)
-        return (primary, secondary, callobj)
-
     def run(self, pooltype=pool.ThreadWorkerPool, workers=1, spare=1):
         if not self.tasks:
             return
 
-        counter = iter(range(len(self.tasks)))
-        frontline = list((self._annotate_prio(t, counter)
-                         for t in self.tasks if not get_requires(t)))
+        frontline = PriorityQueue((t for t in self.tasks if not get_requires(t)))
         self.sharedmap = SharedMap(self.tasks, initstate=self.default_shared)
         pool = pooltype(alltasks=self.tasks, workers=workers, spare=spare)
 
-        frontline.sort()
         while frontline and not pool.full():
-            _, _, task = frontline.pop(0)  # 3x faster than set with sorted()
+            task = frontline.pop()
             shared = self.sharedmap[task]
             pool.submit(task, shared)
 
@@ -198,17 +217,13 @@ class Sched:
 
                 # tasks to be scheduled next, unblocked by fresh provides
                 next_tasks = self.depmap.satisfy(taskres.task)
-
-                # put new tasks on the frontline
-                next_with_prio = (self._annotate_prio(t, counter) for t in next_tasks)
-                frontline.extend(next_with_prio)
-                frontline.sort()
+                frontline.add(next_tasks)
 
             del self.sharedmap[taskres.task]
 
             # and schedule as much as we can
             while frontline and not pool.full():
-                _, _, task = frontline.pop(0)
+                task = frontline.pop()
                 shared = self.sharedmap[task]
                 pool.submit(task, shared)
 
