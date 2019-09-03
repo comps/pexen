@@ -74,28 +74,33 @@ class DepMap:
                 else:
                     self.map[req] = {task: reqs}
 
+    def _valid_provide(self, provide):
+        """Sanity check if a provide is known/valid."""
+        if provide not in self.map:
+            warnings.warn(f"Dep \"{provide}\" provided by {task}, "
+                          "but not required by any task",
+                          category=util.PexenWarning)
+            return False
+        return True
+
+    def children(self, task):
+        """Return children tasks of a task, per requires/provides relations."""
+        for provide in get_provides(task):
+            if self._valid_provide(provide):
+                yield from self.map[provide].keys()
+
     def satisfy(self, task):
         """Go through a task's provides and satisfy all requires in the map.
 
-        Returns a tuple of two sets; tasks ready to be run (all requires
-        satisfied) and all affected ("child") tasks, even the ones with still
-        unmet requires.
+        Returns tasks ready to be run (all requires satisfied).
         """
-        torun = set()
-        children = set()
         for provide in get_provides(task):
-            if provide not in self.map:
-                warnings.warn(f"Dep \"{provide}\" provided by {task}, "
-                              "but not required by any task",
-                              category=util.PexenWarning)
-                continue
-            ctasks = self.map.pop(provide)
-            children.update(ctasks)
-            for ctask, creqs in ctasks.items():
-                creqs.remove(provide)
-                if not creqs:
-                    torun.add(ctask)
-        return (torun, children)
+            if self._valid_provide(provide):
+                ctasks = self.map.pop(provide)
+                for ctask, creqs in ctasks.items():
+                    creqs.remove(provide)
+                    if not creqs:
+                        yield ctask
 
     def simulate(self, tasks):
         """Simulate dependency resolution to identify unmet requires.
@@ -104,7 +109,7 @@ class DepMap:
         frontline = list((t for t in tasks if not get_requires(t)))
         for task in frontline:
             # imagine we run the task <here>
-            nexttasks, _ = self.satisfy(task)
+            nexttasks = self.satisfy(task)
             frontline.extend(nexttasks)
         if self.map:
             raise DepcheckError(
@@ -166,12 +171,12 @@ class Sched:
 
             # if it didn't fail, schedule its children
             if not taskres.excinfo:
-                # tasks to be scheduled next, unblocked by fresh provides
-                next_tasks, children = self.depmap.satisfy(taskres.task)
-
                 # propagate shared state from current to next tasks
-                for child in children:
+                for child in self.depmap.children(taskres.task):
                     allshared[child].update(taskres.shared)
+
+                # tasks to be scheduled next, unblocked by fresh provides
+                next_tasks = self.depmap.satisfy(taskres.task)
 
                 # put new tasks on the frontline
                 next_with_prio = (self._annotate_prio(t, counter) for t in next_tasks)
