@@ -1,6 +1,6 @@
-from pexen.sched import attr
+from pexen import sched
   
-@attr.func_attr
+@sched.attr.func_attr
 def dummy4():
     print("running dummy4")
     return 4

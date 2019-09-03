@@ -1,6 +1,6 @@
 #import dataclasses
 
-ATTR_NAME = 'pexen_meta_'
+SCHED_ATTR_NAME = 'pexen_sched_meta_'
 
 class CallAttr:
     def __init__(self, **kwargs):
@@ -69,23 +69,23 @@ def assign_attr(callobj, meta=None):
     to assign it to an object.
     """
     if meta:
-        setattr(callobj, ATTR_NAME, meta)
+        setattr(callobj, SCHED_ATTR_NAME, meta)
         return meta
     else:
         try:
-            return getattr(callobj, ATTR_NAME)
+            return getattr(callobj, SCHED_ATTR_NAME)
         except AttributeError:
             new = CallAttr()
-            setattr(callobj, ATTR_NAME, new)
+            setattr(callobj, SCHED_ATTR_NAME, new)
             return new
 
 def has_attr(callobj):
     """Return True if the object has valid metadata assigned."""
-    return hasattr(callobj, ATTR_NAME)
+    return hasattr(callobj, SCHED_ATTR_NAME)
 
 def retrieve_attr(callobj):
     """Get a metadata attribute from an object."""
-    return getattr(callobj, ATTR_NAME)
+    return getattr(callobj, SCHED_ATTR_NAME)
 
 def assign_val(callobj, **kwargs):
     """Assign metadata values passed as kwargs to an object.
@@ -94,12 +94,12 @@ def assign_val(callobj, **kwargs):
     with CallAttr.
     """
     try:
-        meta = getattr(callobj, ATTR_NAME)
+        meta = getattr(callobj, SCHED_ATTR_NAME)
         #meta.__dict__.update(kwargs)  # dataclass
         meta.update(kwargs)
     except AttributeError:
         meta = CallAttr(**kwargs)
-        setattr(callobj, ATTR_NAME, meta)
+        setattr(callobj, SCHED_ATTR_NAME, meta)
 
 def _gen_get_subattr(name):
     def get_subattr(callobj):
