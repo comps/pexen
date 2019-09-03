@@ -53,6 +53,64 @@ class DepcheckError(SchedulerError):
         self.remain = remain
         super().__init__(msg)
 
+class DepMap:
+    """Used for tracking requires/provides."""
+    def __init__(self, tasks):
+        # indexed by dep name, each member having a (sub-)dict indexed by task
+        # callable, each of which points to a set of requires of the task
+        self._build_map(tasks)
+
+    def __len__(self):
+        return len(self.map)
+
+    def _build_map(self, tasks):
+        """Given a list of tasks, build the dependency map."""
+        self.map = {}
+        for task in tasks:
+            reqs = get_requires(task).copy()
+            for req in reqs:
+                if req in self.map:
+                    self.map[req][task] = reqs
+                else:
+                    self.map[req] = {task: reqs}
+
+    def satisfy(self, task):
+        """Go through a task's provides and satisfy all requires in the map.
+
+        Returns a tuple of two sets; tasks ready to be run (all requires
+        satisfied) and all affected ("child") tasks, even the ones with still
+        unmet requires.
+        """
+        torun = set()
+        children = set()
+        for provide in get_provides(task):
+            if provide not in self.map:
+                warnings.warn(f"Dep \"{provide}\" provided by {task}, "
+                              "but not required by any task",
+                              category=util.PexenWarning)
+                continue
+            ctasks = self.map.pop(provide)
+            children.update(ctasks)
+            for ctask, creqs in ctasks.items():
+                creqs.remove(provide)
+                if not creqs:
+                    torun.add(ctask)
+        return (torun, children)
+
+    def simulate(self, tasks):
+        """Simulate dependency resolution to identify unmet requires.
+
+        This action destroys/clears the DepMap instance!"""
+        frontline = list((t for t in tasks if not get_requires(t)))
+        for task in frontline:
+            # imagine we run the task <here>
+            nexttasks, _ = self.satisfy(task)
+            frontline.extend(nexttasks)
+        if self.map:
+            raise DepcheckError(
+                f"Unsatisfied requires remain: {list(self.map.keys())}",
+                self.map)
+
 # TODO: "claims" functionality/attr
 
 # TODO: task groups / exclusivity (based on pool restarting)
@@ -61,8 +119,6 @@ class Sched:
     def __init__(self, tasks=set()):
         # all added callables
         self.tasks = set()
-        # provided resources pointing to tasks requiring them
-        self.deps = {}
         # default for shared state between chained tasks
         self.default_shared = {}
         # whether the current task set was sanity checked
@@ -72,72 +128,10 @@ class Sched:
 
     def add_tasks(self, new):
         self.tasks.update(set(new))
-        self.checked = False
+        self.depmap = DepMap(self.tasks)
         if __debug__:
-            self.check()
-        # save a few cycles - if the check fails, don't build deps for execution
-        self._build_deps(new, self.deps)
-
-    def _build_deps(self, tasks, alldeps={}):
-        """Build a dict of task dependencies (requires/provides).
-
-        Top-level dict is indexed by dep name, each having a (sub-)dict indexed
-        by task callable, each of which points to a set of requires of the task.
-        """
-        for task in tasks:
-            reqs = get_requires(task).copy()
-            for req in reqs:
-                if req in alldeps:
-                    alldeps[req][task] = reqs
-                else:
-                    alldeps[req] = {task: reqs}
-        return alldeps
-
-    @staticmethod
-    def _satisfy_provides(alldeps, task):
-        """Go through a task's provides and satisfy all requires in alldeps.
-
-        Returns a tuple of two sets; tasks ready to be run (all requires
-        satisfied) and all affected ("child") tasks, even the ones with still
-        unmet requires.
-        """
-        torun = set()
-        children = set()
-        for provide in get_provides(task):
-            if provide not in alldeps:
-                warnings.warn(f"Dep \"{provide}\" provided by {task}, "
-                              "but not required by any task",
-                              category=util.PexenWarning)
-                continue
-            ctasks = alldeps.pop(provide)
-            children.update(ctasks)
-            for ctask, creqs in ctasks.items():
-                creqs.remove(provide)
-                if not creqs:
-                    torun.add(ctask)
-        return (torun, children)
-
-    def _simulate_deps(self):
-        alldeps = self._build_deps(self.tasks)
-        frontline = list((t for t in self.tasks if not get_requires(t)))
-        for task in frontline:
-            # imagine we run the task <here>
-            # now satisfy deps by this task's provides
-            nexttasks, children = self._satisfy_provides(alldeps, task)
-            frontline.extend(nexttasks)
-        if alldeps:
-            raise util.DepcheckError(
-                f"Unsatisfied requires remain: {list(alldeps.keys())}",
-                alldeps)
-
-    def check(self):
-        """Run preliminary safety checks before execution.
-
-        Performed automatically unless running python with -O.
-        """
-        if not self.checked:
-            self._simulate_deps()
-        self.checked = True
+            self.depmap.simulate(self.tasks)
+            self.depmap = DepMap(self.tasks)
 
     def add_shared(self, **kwargs):
         """Pre-set key/values in the default shared space."""
@@ -173,7 +167,7 @@ class Sched:
             # if it didn't fail, schedule its children
             if not taskres.excinfo:
                 # tasks to be scheduled next, unblocked by fresh provides
-                next_tasks, children = self._satisfy_provides(self.deps, taskres.task)
+                next_tasks, children = self.depmap.satisfy(taskres.task)
 
                 # propagate shared state from current to next tasks
                 for child in children:
@@ -192,9 +186,9 @@ class Sched:
                 shared = allshared[task]
                 pool.submit(task, shared)
 
-            # there may still be unsatisfied self.deps if a task failed
+            # there may still be unsatisfied deps if a task failed
             if not frontline:
-                remain = len(self.deps)
+                remain = len(self.depmap)
                 if remain > 0:
                     warnings.warn(f"{remain} tasks skipped due to unmet deps "
                                   "caused by parent exception",
