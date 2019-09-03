@@ -116,6 +116,27 @@ class DepMap:
                 f"Unsatisfied requires remain: {list(self.map.keys())}",
                 self.map)
 
+class SharedMap:
+    """Holds shared state for tasks."""
+    def __init__(self, tasks, initstate={}):
+        self._build_map(tasks, initstate)
+
+    def __getitem__(self, key):
+        return self.map[key]
+
+    def __delitem__(self, key):
+        del self.map[key]
+
+    def _build_map(self, tasks, initstate):
+        """Given a list of tasks, create a shared store for each."""
+        self.map = dict(((task, initstate.copy()) for task in tasks))
+
+    def update(self, tasks, data):
+        """Update shared state of each task with data."""
+        for task in tasks:
+            if task in self.map:
+                self.map[task].update(data)
+
 # TODO: "claims" functionality/attr
 
 # TODO: task groups / exclusivity (based on pool restarting)
@@ -157,13 +178,13 @@ class Sched:
         counter = iter(range(len(self.tasks)))
         frontline = list((self._annotate_prio(t, counter)
                          for t in self.tasks if not get_requires(t)))
-        allshared = dict(((task, self.default_shared.copy()) for task in self.tasks))
+        self.sharedmap = SharedMap(self.tasks, initstate=self.default_shared)
         pool = pooltype(alltasks=self.tasks, workers=workers, spare=spare)
 
         frontline.sort()
         while frontline and not pool.full():
             _, _, task = frontline.pop(0)  # 3x faster than set with sorted()
-            shared = allshared[task]
+            shared = self.sharedmap[task]
             pool.submit(task, shared)
 
         for taskres in pool.iter_results():
@@ -172,8 +193,8 @@ class Sched:
             # if it didn't fail, schedule its children
             if not taskres.excinfo:
                 # propagate shared state from current to next tasks
-                for child in self.depmap.children(taskres.task):
-                    allshared[child].update(taskres.shared)
+                children = self.depmap.children(taskres.task)
+                self.sharedmap.update(children, taskres.shared)
 
                 # tasks to be scheduled next, unblocked by fresh provides
                 next_tasks = self.depmap.satisfy(taskres.task)
@@ -183,12 +204,12 @@ class Sched:
                 frontline.extend(next_with_prio)
                 frontline.sort()
 
-            del allshared[taskres.task]
+            del self.sharedmap[taskres.task]
 
             # and schedule as much as we can
             while frontline and not pool.full():
                 _, _, task = frontline.pop(0)
-                shared = allshared[task]
+                shared = self.sharedmap[task]
                 pool.submit(task, shared)
 
             # there may still be unsatisfied deps if a task failed
