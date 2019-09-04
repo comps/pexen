@@ -7,8 +7,6 @@ SCHED_ATTR_NAME = 'pexen_sched_meta_'
 class CallAttr:
     def __init__(self, **kwargs):
         object.__setattr__(self, 'data', {
-            # TODO: remove unused callpath + get_callpath below
-            'callpath': [],
             'requires': set(),
             'provides': set(),
             'uses': set(),
@@ -61,7 +59,6 @@ class CallAttr:
 # dataclass cannot guarantee data type of its members unless completely frozen
 #@dataclasses.dataclass
 #class CallAttr:
-#    callpath: list = dataclasses.field(default_factory=list)
 #    requires: set = dataclasses.field(default_factory=set)
 #    provides: set = dataclasses.field(default_factory=set)
 #    claims: set = dataclasses.field(default_factory=set)
@@ -112,7 +109,6 @@ def _gen_get_subattr(name):
         return getattr(meta, name)
     return get_subattr
 
-get_callpath = _gen_get_subattr('callpath')
 get_requires = _gen_get_subattr('requires')
 get_provides = _gen_get_subattr('provides')
 get_uses     = _gen_get_subattr('uses')
