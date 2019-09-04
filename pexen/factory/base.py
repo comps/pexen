@@ -13,7 +13,7 @@ class BaseFactory:
 
     @staticmethod
     def is_valid_callable(obj):
-        if callable(obj) and meta.has_attr(obj):
+        if callable(obj) and meta.has_meta(obj):
             return True
         return False
 
