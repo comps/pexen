@@ -1,4 +1,4 @@
-from ..sched import attr
+from ..sched import meta
 
 CALLPATH_ATTR_NAME = 'pexen_factory_callpath_'
 
@@ -13,7 +13,7 @@ class BaseFactory:
 
     @staticmethod
     def is_valid_callable(obj):
-        if callable(obj) and attr.has_attr(obj):
+        if callable(obj) and meta.has_attr(obj):
             return True
         return False
 

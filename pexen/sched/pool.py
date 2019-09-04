@@ -7,7 +7,7 @@ import multiprocessing.queues  # for picklability check
 import pickle
 
 from .shared import SchedulerError
-from .attr import get_kwargs
+from .meta import get_kwargs
 
 
 class PoolError(SchedulerError):

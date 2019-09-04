@@ -1,6 +1,6 @@
 """
 The scheduler takes callables and runs them according to their associated
-metadata (attributes), as provided by pexen.attr.
+metadata (attributes), as provided by pexen.sched.meta.
 
 The dependency resolution and scheduling algorithm itself is not deterministic
 unless the callable execution time (and all the platform parallelism mechanisms)
@@ -41,7 +41,7 @@ import warnings
 
 from . import pool
 # TODO: rewrite as attr.get_requires(), or /after rename/, meta.get_requires()
-from .attr import get_requires, get_provides, get_priority, get_uses, get_claims
+from .meta import get_requires, get_provides, get_priority, get_uses, get_claims
 from .shared import SchedulerError
 from .. import util
 

@@ -1,2 +1,2 @@
 from .planner import Sched
-from . import attr
+from . import meta
