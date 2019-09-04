@@ -39,9 +39,7 @@ import warnings
 # they just iterate the list of futures from front to back, .. use a real pool
 #from concurrent import futures
 
-from . import pool
-# TODO: rewrite as attr.get_requires(), or /after rename/, meta.get_requires()
-from .meta import get_requires, get_provides, get_priority, get_uses, get_claims
+from . import meta, pool
 from .shared import SchedulerError
 from .. import util
 
@@ -77,7 +75,7 @@ class DepMap:
         """Given a list of tasks, build the dependency map."""
         self.map = {}
         for task in tasks:
-            reqs = get_requires(task).copy()
+            reqs = meta.get_requires(task).copy()
             for req in reqs:
                 if req in self.map:
                     self.map[req][task] = reqs
@@ -95,7 +93,7 @@ class DepMap:
 
     def children(self, task):
         """Return children tasks of a task, per requires/provides relations."""
-        for provide in get_provides(task):
+        for provide in meta.get_provides(task):
             if self._valid_provide(provide):
                 yield from self.map[provide].keys()
 
@@ -104,7 +102,7 @@ class DepMap:
 
         Return tasks ready to be run (all requires satisfied).
         """
-        for provide in get_provides(task):
+        for provide in meta.get_provides(task):
             if self._valid_provide(provide):
                 ctasks = self.map.pop(provide)
                 for ctask, creqs in ctasks.items():
@@ -117,7 +115,7 @@ class DepMap:
 
         This action destroys/clears the DepMap instance!
         """
-        frontline = list((t for t in tasks if not get_requires(t)))
+        frontline = list((t for t in tasks if not meta.get_requires(t)))
         for task in frontline:
             # imagine we run the task <here>
             nexttasks = self.satisfy(task)
@@ -169,7 +167,7 @@ class PriorityQueue:
     def add(self, tasks):
         """Add new tasks to the queue and sort it."""
         for task in tasks:
-            prio = get_priority(task)
+            prio = meta.get_priority(task)
             # give each callobj a unique integer, to prevent list.sort()
             # comparing actual task objects if their primary prio is the same
             secprio = self._gen_unique_id()
@@ -210,8 +208,8 @@ class MutexMap:
 
     def _sanity_check(self, tasks):
         for task in tasks:
-            uses = get_uses(task)
-            claims = get_claims(task)
+            uses = meta.get_uses(task)
+            claims = meta.get_claims(task)
             both = uses.intersection(claims)
             if both:
                 raise MutexError(
@@ -221,12 +219,12 @@ class MutexMap:
     def _test_locks(self, task):
         """Test whether all locks a task requires can be acquired."""
         # rw and ro logic
-        for use in get_uses(task):
+        for use in meta.get_uses(task):
             # already held rw, cannot lock ro
             if use in self.rwlocks:
                 return False
             # if it is held ro or not held at all, we can lock
-        for claim in get_claims(task):
+        for claim in meta.get_claims(task):
             # already held rw/ro, cannot lock rw
             if claim in self.rwlocks or claim in self.rolocks:
                 return False
@@ -235,21 +233,21 @@ class MutexMap:
     def _acquire_locks(self, task):
         if not self._test_locks(task):
             return False
-        for use in get_uses(task):
+        for use in meta.get_uses(task):
             if use in self.rolocks:
                 self.rolocks[use].add(task)
             else:
                 self.rolocks[use] = {task}
-        for claim in get_claims(task):
+        for claim in meta.get_claims(task):
             self.rwlocks[claim] = task
         return True
 
     def _release_locks(self, task):
-        for use in get_uses(task):
+        for use in meta.get_uses(task):
             self.rolocks[use].remove(task)
             if not self.rolocks[use]:
                 del self.rolocks[use]
-        for claim in get_claims(task):
+        for claim in meta.get_claims(task):
             del self.rwlocks[claim]
 
     def add(self, tasks):
@@ -262,7 +260,7 @@ class MutexMap:
         self.buffer.extend(tasks)
         PriorityQueue.onesort(self.buffer)
         for task in self.buffer:
-            if get_uses(task) or get_claims(task):
+            if meta.get_uses(task) or meta.get_claims(task):
                 if self._acquire_locks(task):
                     yield task
                 else:
@@ -309,7 +307,7 @@ class Sched:
 
         # initial frontline - tasks without deps and without locks
         # (or with successfully acquired locks)
-        frontline = (t for t in self.tasks if not get_requires(t))
+        frontline = (t for t in self.tasks if not meta.get_requires(t))
         frontline = self.lockmap.add(frontline)
         frontline = PriorityQueue(frontline)
 
