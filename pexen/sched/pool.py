@@ -6,11 +6,10 @@ import multiprocessing
 import multiprocessing.queues  # for picklability check
 import pickle
 
-from .shared import SchedulerError
-from .meta import get_kwargs
+from . import common, meta
 
 
-class PoolError(SchedulerError):
+class PoolError(common.SchedulerError):
     """Raised by ProcessWorkerPool or ThreadWorkerPool."""
     pass
 
@@ -26,9 +25,6 @@ _PoolWorkerMsg = namedtuple('_PoolWorkerMsg', ['workid', 'msgtype', 'taskidx',
                                                'shared', 'ret', 'excinfo'])
 # TODO: use Python 3.7 namedtuple defaults
 _PoolWorkerMsg.__new__.__defaults__ = (None,) * len(_PoolWorkerMsg._fields)
-
-# taskres returned to the caller
-PoolTaskRes = namedtuple('PoolTaskRes', ['task', 'shared', 'ret', 'excinfo'])
 
 # TODO: also document that by delaying iteration of iter_results, the user
 #       can effectively throttle the execution as no new items will be scheduled
@@ -61,7 +57,7 @@ class ProcessWorkerPool:
             try:
                 taskidx, shared = taskinfo
                 task = alltasks[taskidx]
-                kwargs = get_kwargs(task)
+                kwargs = meta.get_kwargs(task)
                 ret = None
                 # support special case: argument-less task, for simplicity
                 if task.__code__.co_argcount == 0:
@@ -90,7 +86,7 @@ class ProcessWorkerPool:
                     if not _is_picklable(extb):
                         extb = None
                 msg = _PoolWorkerMsg(workid, 'taskdone', taskidx, shared, ret,
-                                    (extype, exval, extb))
+                                     common.ExceptionInfo(extype, exval, extb))
                 outqueue.put(msg)
 
                 # in case the above ever gets fixed:
@@ -139,7 +135,7 @@ class ProcessWorkerPool:
     def idlecnt(self):
         return self.max_tasks - self.active_tasks
 
-    def submit(self, task, shared=None):
+    def submit(self, task, shared={}):
         if self.shutting_down:
             raise PoolError("Cannot submit tasks, the pool is shutting down")
         if id(task) not in self.task_map:
@@ -175,7 +171,7 @@ class ProcessWorkerPool:
             elif msg.msgtype == 'taskdone':
                 task = self.task_map[msg.taskidx]
                 self.active_tasks -= 1
-                yield PoolTaskRes(task, msg.shared, msg.ret, msg.excinfo)
+                yield common.TaskRes(task, msg.shared, msg.ret, msg.excinfo)
             else:
                 raise RuntimeError(f"unexpected msg: {msg}")
 

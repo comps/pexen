@@ -8,6 +8,7 @@ import psutil
 import warnings
 
 from pexen import sched, util
+from pexen.sched import TaskRes
 from pexen.sched.pool import ThreadWorkerPool, ProcessWorkerPool
 
 parametrize_pool_both = functools.partial(
@@ -84,6 +85,15 @@ def create_dummy_shared_kwargs(name, sh):
         return kwargs
     return dummy_shared_kwargs
 
+def create_dummy_that_types(name, queue, letter=None, every=0.1, total=5):
+    if not letter:
+        letter = name[-1]  # last letter of name
+    def dummy_typing(*, queue):
+        for i in range(total):
+            queue.put(str(letter))
+            time.sleep(every)
+    return dummy_typing
+
 #
 # Basic functionality / sanity
 #
@@ -107,7 +117,7 @@ def test_task_via_init(pool):
     dummy1 = create_dummy('dummy1')
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    assert res == [(dummy1, {}, None, None)]
+    assert res == [TaskRes(dummy1)]
 
 @parametrize_pool_both()
 def test_add_tasks(pool):
@@ -116,26 +126,36 @@ def test_add_tasks(pool):
     s = sched.Sched([dummy1])
     s.add_tasks([dummy2])
     res = list(s.run(pooltype=pool))
-    assert (dummy1, {}, None, None) in res
-    assert (dummy2, {}, None, None) in res
+    assert TaskRes(dummy1) in res
+    assert TaskRes(dummy2) in res
+
+@parametrize_pool_both()
+def test_restart(pool):
+    dummy1 = create_dummy('dummy1')
+    dummy2 = create_dummy('dummy2')
+    s = sched.Sched([dummy1])
+    res = list(s.run(pooltype=pool))
+    assert TaskRes(dummy1) in res
+    s.add_tasks([dummy2])
+    res = list(s.run(pooltype=pool))
+    assert TaskRes(dummy2) in res
 
 @parametrize_pool_both()
 def test_return_value(pool):
     dummy1 = create_dummy_with_return('dummy1', 1234)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    assert res == [(dummy1, {}, 1234, None)]
+    assert res == [TaskRes(dummy1, ret=1234)]
 
 @parametrize_pool_both()
 def test_return_exception(pool):
     dummy1 = create_dummy_with_exception('dummy1', NameError)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    dummy1res, = res
-    assert dummy1res[:3] == (dummy1, {}, None)
-    extype, exval, extb = dummy1res[3]
-    assert extype == NameError
-    assert isinstance(exval, NameError)
+    dummy1res = res[0]
+    assert dummy1res.task == dummy1
+    assert dummy1res.excinfo.type == NameError
+    assert isinstance(dummy1res.excinfo.val, NameError)
 
 @parametrize_pool_both()
 def test_priority(pool):
@@ -145,12 +165,12 @@ def test_priority(pool):
     sched.meta.assign_val(dummy2, priority=4)
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
-    assert res == [(dummy1, {}, None, None), (dummy2, {}, None, None)]
+    assert res == [TaskRes(dummy1), TaskRes(dummy2)]
     sched.meta.assign_val(dummy1, priority=4)
     sched.meta.assign_val(dummy2, priority=3)
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
-    assert res == [(dummy2, {}, None, None), (dummy1, {}, None, None)]
+    assert res == [TaskRes(dummy2), TaskRes(dummy1)]
 
 @parametrize_pool_both()
 def test_requires_provides(pool):
@@ -160,7 +180,28 @@ def test_requires_provides(pool):
     sched.meta.assign_val(dummy2, provides=['dep'], priority=2)
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
-    assert res == [(dummy2, {}, None, None), (dummy1, {}, None, None)]
+    assert res == [TaskRes(dummy2), TaskRes(dummy1)]
+
+@parametrize_pool_both()
+def test_uses(pool):
+    q = mp.Queue()
+    dummy1 = create_dummy_that_types('dummy1', q)
+    sched.meta.assign_val(dummy1, uses=['res'], priority=1, kwargs={'queue': q})
+    dummy2 = create_dummy_that_types('dummy2', q)
+    sched.meta.assign_val(dummy2, uses=['res'], priority=2, kwargs={'queue': q})
+    s = sched.Sched([dummy1, dummy2])
+    res = list(s.run(pooltype=pool, workers=1))
+    assert res == [TaskRes(dummy1), TaskRes(dummy2)]
+    output = ''.join(map(lambda x: q.get(), range(q.qsize())))
+    assert output == '1111122222'
+    #s = sched.Sched([dummy1, dummy2])
+    s.add_tasks([dummy1, dummy2])
+    res = list(s.run(pooltype=pool, workers=2))
+    assert TaskRes(dummy1) in res
+    assert TaskRes(dummy2) in res
+    output = ''.join(map(lambda x: str(q.get()), range(q.qsize())))
+    assert '11111' not in output
+    #assert '121' in output or '212' in output
 
 @parametrize_pool_both()
 def test_shared(pool):
@@ -171,8 +212,13 @@ def test_shared(pool):
     s = sched.Sched([dummy2, dummy1])
     res = list(s.run(pooltype=pool))
     dummy2res, dummy1res = res  # order guaranteed by dep
-    assert dummy2res == (dummy2, {'dummy2': 1234}, None, None)
-    assert dummy1res == (dummy1, {'dummy2': 1234, 'dummy1': 2345}, None, None)
+    assert dummy2res == TaskRes(dummy2, shared={'dummy2': 1234})
+    assert dummy1res == TaskRes(dummy1, shared={'dummy2': 1234, 'dummy1': 2345})
+
+# TODO: user pre-set shared
+#        s.add_shared(setup=123)
+#        moreshared = {'cleanup': 234, 'other': 345}
+#        s.add_shared(**moreshared)
 
 @parametrize_pool_both()
 def test_kwargs(pool):
@@ -181,7 +227,7 @@ def test_kwargs(pool):
     sched.meta.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    assert res == [(dummy1, {}, args, None)]
+    assert res == [TaskRes(dummy1, ret=args)]
 
 @parametrize_pool_both()
 def test_shared_kwargs(pool):
@@ -190,7 +236,7 @@ def test_shared_kwargs(pool):
     sched.meta.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    assert res == [(dummy1, {'dummy1': 1234}, args, None)]
+    assert res == [TaskRes(dummy1, shared={'dummy1': 1234}, ret=args)]
 
 @parametrize_pool_both()
 def test_failed_parent(pool):
@@ -202,18 +248,13 @@ def test_failed_parent(pool):
     with warnings.catch_warnings(record=True) as caught:
         res = list(s.run(pooltype=pool))
     assert len(res) == 1  # dummy1 didn't run
-    assert res[0][:3] == (dummy2, {}, None)
-    extype, exval, extb = res[0][3]
-    assert extype == NameError
-    assert isinstance(exval, NameError)
+    dummy2res = res[0]
+    assert dummy2res.task == dummy2
+    assert dummy2res.excinfo.type == NameError
+    assert isinstance(dummy2res.excinfo.val, NameError)
     assert len(caught) == 1  # only one warning
     assert caught[0].category == util.PexenWarning
     assert '1 tasks skipped due to unmet deps' in str(caught[0].message)
-
-# TODO: user pre-set shared
-#        s.add_shared(setup=123)
-#        moreshared = {'cleanup': 234, 'other': 345}
-#        s.add_shared(**moreshared)
 
 # TODO: broken dependencies
 #       - requiring something that was not provided -> exception
@@ -257,12 +298,10 @@ def test_unpicklable_ret(pool):
     dummy1 = create_dummy_with_return('dummy1', nonpickl)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    dummy1res, = res
-    assert dummy1res[:3] == (dummy1, {}, None)
-    extype, exval, extb = dummy1res[3]
-    print(str(exval))
-    assert extype == AttributeError
-    assert "Can't pickle" in str(exval)
+    dummy1res = res[0]
+    assert dummy1res.task == dummy1
+    assert dummy1res.excinfo.type == AttributeError
+    assert "Can't pickle" in str(dummy1res.excinfo.val)
 
 @parametrize_pool_process()
 def test_unpicklable_shared(pool):
@@ -270,11 +309,10 @@ def test_unpicklable_shared(pool):
     dummy1 = create_dummy_with_shared('dummy1', nonpickl)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    dummy1res, = res
-    assert dummy1res[:3] == (dummy1, None, None)
-    extype, exval, extb = dummy1res[3]
-    assert extype == AttributeError
-    assert "Can't pickle" in str(exval)
+    dummy1res = res[0]
+    assert dummy1res.task == dummy1
+    assert dummy1res.excinfo.type == AttributeError
+    assert "Can't pickle" in str(dummy1res.excinfo.val)
 
 @parametrize_pool_process()
 def test_unpicklable_ret_shared(pool):
@@ -282,11 +320,10 @@ def test_unpicklable_ret_shared(pool):
     dummy1 = create_dummy_with_shared('dummy1', nonpickl, ret=nonpickl)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    dummy1res, = res
-    assert dummy1res[:3] == (dummy1, None, None)
-    extype, exval, extb = dummy1res[3]
-    assert extype == AttributeError
-    assert "Can't pickle" in str(exval)
+    dummy1res = res[0]
+    assert dummy1res.task == dummy1
+    assert dummy1res.excinfo.type == AttributeError
+    assert "Can't pickle" in str(dummy1res.excinfo.val)
 
 # Threading - unpicklable objects should be passed without an issue
 
@@ -296,7 +333,7 @@ def test_unpicklable_ret_shared_thread(pool):
     dummy1 = create_dummy_with_shared('dummy1', nonpickl, ret=nonpickl)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    assert res == [(dummy1, {'dummy1': nonpickl}, nonpickl, None)]
+    assert res == [TaskRes(dummy1, shared={'dummy1': nonpickl}, ret=nonpickl)]
 
 #
 # Worker Pool specific functionality
@@ -312,12 +349,13 @@ def test_pool_reuse(pool, reuse_task_list):
     p.submit(dummy1)
     p.shutdown(wait=True)
     res = list(p.iter_results())
-    assert res == [(dummy1, None, None, None)]
+    assert res == [TaskRes(dummy1)]
     p.start_pool() if reuse_task_list else p.start_pool(alltasks=[dummy2])
     p.submit(dummy2)
     p.shutdown(wait=True)
     res = list(p.iter_results())
-    assert res == [(dummy2, None, None, None)]
+    #assert res == [TaskRes(dummy2, shared=None)]
+    assert res == [TaskRes(dummy2)]
 
 # TODO: multiple result iterators (multiple iter_results() calls)
 
@@ -333,11 +371,10 @@ def test_kwargs_without_args(pool):
     sched.meta.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
     res = list(s.run(pooltype=pool))
-    dummy1res, = res
-    assert dummy1res[:3] == (dummy1, {}, None)
-    extype, exval, extb = dummy1res[3]
-    assert extype == TypeError
-    assert "unexpected keyword argument" in str(exval)
+    dummy1res = res[0]
+    assert dummy1res.task == dummy1
+    assert dummy1res.excinfo.type == TypeError
+    assert "unexpected keyword argument" in str(dummy1res.excinfo.val)
 
 # invalid data type being passed as attr
 def test_invalid_attr_type():
@@ -347,7 +384,6 @@ def test_invalid_attr_type():
     with pytest.raises(AttributeError) as exc:
         sched.meta.assign_val(dummy1, requires='dep')   # denied conversion
     assert "<class 'str'> cannot be used for requires" in str(exc.value)
-
 
 #
 # Performance tests

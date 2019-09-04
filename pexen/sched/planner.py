@@ -39,11 +39,10 @@ import warnings
 # they just iterate the list of futures from front to back, .. use a real pool
 #from concurrent import futures
 
-from . import meta, pool
-from .shared import SchedulerError
+from . import meta, pool, common
 from .. import util
 
-class DepcheckError(SchedulerError):
+class DepcheckError(common.SchedulerError):
     """Raised by the scheduler when a requires/provides check fails.
 
     The arg contains the remaining unsatisfied dependency metadata.
@@ -52,7 +51,7 @@ class DepcheckError(SchedulerError):
         self.remain = remain
         super().__init__(msg)
 
-class MutexError(SchedulerError):
+class MutexError(common.SchedulerError):
     """Raised by the scheduler when a mutex sanity check fails.
 
     The arg holds the task object that failed the check.
@@ -281,8 +280,6 @@ class Sched:
         self.tasks = set()
         # default for shared state between chained tasks
         self.default_shared = {}
-        # whether the current task set was sanity checked
-        self.checked = False
         if tasks:
             self.add_tasks(tasks)
 
@@ -296,6 +293,21 @@ class Sched:
     def add_shared(self, **kwargs):
         """Pre-set key/values in the default shared space."""
         self.default_shared.update(kwargs)
+
+    # TODO: document controlled fail / raising TaskFailError
+    @staticmethod
+    def _is_controlled_fail(excinfo):
+        """Return True if the task exception is a user-induced one,
+        as opposed to an unexpected one.
+        """
+        extype, exval, extb = excinfo
+        return issubclass(extype, common.TaskFailError)
+
+    # TODO: prevent run() from being called while tasks are running
+
+    # TODO: does Sched instance support restarting by running run()
+    #       again after it finishes? .. do we need to add_tasks()?
+    #       --> document it
 
     def run(self, pooltype=pool.ThreadWorkerPool, workers=1, spare=1):
         if not self.tasks:
@@ -319,15 +331,10 @@ class Sched:
         for taskres in pool.iter_results():
             yield taskres
 
-            # if it didn't fail, schedule its children
-            if not taskres.excinfo:
-                # TODO: allow controlled failure, let the user raise some
-                #       pexen.ThisIsFine and if so, schedule children like usual
-                #       and unlock mutexes;
-                #       otherwise do not schedule children + leave locked mutexes
-
+            # if it didn't fail or failed controllably
+            if not taskres.excinfo or self._is_controlled_fail(taskres.excinfo):
                 # process claims/uses, free mutexes since the task ended
-                self.lockmap.release(task)
+                self.lockmap.release(taskres.task)
 
                 # propagate shared state from current to next tasks
                 children = self.depmap.children(taskres.task)
@@ -350,18 +357,20 @@ class Sched:
                 shared = self.sharedmap[task]
                 pool.submit(task, shared)
 
-            # there may still be unsatisfied deps/mutexes if a task failed
+            # no new tasks to schedule, just cycle here in pool.iter_results()
             if not frontline:
-                deps = len(self.depmap)
-                if deps > 0:
-                    warnings.warn(f"{deps} tasks skipped due to unmet deps "
-                                  "caused by parent exception",
-                                  category=util.PexenWarning)
-                locks = len(self.lockmap)
-                if locks > 0:
-                    warnings.warn(f"{locks} locks still held at exit due to "
-                                  "parent exception",
-                                  category=util.PexenWarning)
                 pool.shutdown()
+
+        # there may still be unsatisfied deps/mutexes if a task failed
+        deps = len(self.depmap)
+        if deps > 0:
+            warnings.warn(f"{deps} tasks skipped due to unmet deps "
+                          "caused by parent exception",
+                          category=util.PexenWarning)
+        locks = len(self.lockmap)
+        if locks > 0:
+            warnings.warn(f"{locks} locks still held at exit due to "
+                          "parent exception",
+                          category=util.PexenWarning)
 
     # TODO: shutdown func in case user wants to abort; expose pool shutdown()?
