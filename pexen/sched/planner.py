@@ -42,7 +42,7 @@ import warnings
 from . import pool
 # TODO: rewrite as attr.get_requires(), or /after rename/, meta.get_requires()
 from .attr import get_requires, get_provides, get_priority, get_uses, get_claims
-from .util import SchedulerError
+from .shared import SchedulerError
 from .. import util
 
 class DepcheckError(SchedulerError):
