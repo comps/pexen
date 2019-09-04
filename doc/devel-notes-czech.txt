@@ -167,3 +167,42 @@ NOTE: These are some of my personal notes used during development, provided
           - the result stays with the task that will be run, which already has
             its own sharedstate dict, which we just modified
 
+
+- mutex map (uses/claims) development notes
+
+# TODO:
+#  - MutexMap.add() cannot return tasks without uses/claims; would break ordering
+#    - we need to attempt to run tasks with uses/claims if they would get locks right away
+#    - thus, .add() must be the only function, there cannot be another to "get tasks ready to run"
+#      - .add() has to work like a filter
+#  - .add() as filter
+#    - do a linear iteration from beginning to end
+#    - yield tasks that can be run (with or without uses/claims, record uses/claims if tasks take them)
+#    - if a task cannot be run (already used/claimed), put it on a buffer
+#    - if there are other tasks that can be run after one that cannot, yield them (*do* break order)
+#    - when called next time, prepend the buffer of held tasks before any newly passed ones,
+#      thus trying to preserve order
+#
+#  - actually valid optimization (simplified rw/ro as one type of mutex, for this example)
+#    - have a cache indexed by mutex "names" (objects)
+#    - when iterating through the list of tasks (keys of a dict)
+#      - if a mutex name is already locked
+#        - find all tasks requiring that mutex name via the cache
+#        - remove those tasks from the (temporary/copied) task list
+#          - this prevents checking of their other mutex names, saving time
+#          - *** it also saves time on repeated pop() if no tasks were yet marked as done ***
+#            - no change, we can re-use the temporary/copied list with deleted tasks
+#   --> don't use the optimization
+#        - we don't do pop() here, we gather *all* unlocked tasks at once
+#          - thus the temporary list is invalidated after one use
+#        - best case for the cache is still bad
+#          - accessing and removing all tasks from the task "list" (dict keys) takes time
+#            - just iterating once through all tasks is probably faster
+
+
+# ALSO NOTE: priority inversion
+# - if a rw task has high prio and a lot of ro tasks have low prio
+#   - if one ro task manages to run before the rw task, it may block the rw task until
+#     all of the ro tasks finish
+
+

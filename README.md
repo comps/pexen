@@ -62,8 +62,10 @@ possible keys:
 * `provides` - a list of strings or other objects supporting comparison (`==`);
   when the callable finishes running, it "provides" these, unblocking any others
   that "require" the specified strings/objects
-* `claims` - Not Implemented Yet; list of strings/objects to claim a mutex on,
-  so that only one callable locking any of these can run at a time
+* `claims` - list of strings/objects to claim a read-write lock on, so that only
+  one callable locking any of these can run at a time
+* `uses` - like `claims`, but multiple callables using these strings/objects can
+  run simultaneously, see: read-only lock
 * `priority` - a sortable (eg. int) value; given multiple callables capable of
   execution (all requires met), prefer the ones with lower priority value;
   defaults to 0

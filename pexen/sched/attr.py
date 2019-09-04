@@ -2,12 +2,16 @@
 
 SCHED_ATTR_NAME = 'pexen_sched_meta_'
 
+# TODO: rename all "attr" references to "meta", it's pexen scheduler *meta*data
+
 class CallAttr:
     def __init__(self, **kwargs):
         object.__setattr__(self, 'data', {
+            # TODO: remove unused callpath + get_callpath below
             'callpath': [],
             'requires': set(),
             'provides': set(),
+            'uses': set(),
             'claims': set(),
             'priority': 0,
             'kwargs': {},
@@ -111,6 +115,7 @@ def _gen_get_subattr(name):
 get_callpath = _gen_get_subattr('callpath')
 get_requires = _gen_get_subattr('requires')
 get_provides = _gen_get_subattr('provides')
+get_uses     = _gen_get_subattr('uses')
 get_claims   = _gen_get_subattr('claims')
 get_priority = _gen_get_subattr('priority')
 get_kwargs   = _gen_get_subattr('kwargs')

@@ -233,6 +233,18 @@ def test_failed_parent(pool):
 #         for running tasks to finish" mode purely because no more tasks can be
 #         run at this time
 
+# TODO: implicit ordering preservation; we don't make any guarantees, but after
+#       set(self.tasks) gets rewritten to something ordered (ie. dict keys),
+#       we can guarantee best effort first-last ordering for execution
+
+# TODO: split above requires/provides + unmet deps into a big deps testing section
+
+# TODO: big section on testing mutexes
+
+# TODO: failing tasks with unreleased mutexes
+# TODO: combine failing tasks with leftover deps + failing tasks with unreleased mutexes
+# TODO: test MutexError (same key in claims and uses)
+
 #
 # Picklability checks
 #
