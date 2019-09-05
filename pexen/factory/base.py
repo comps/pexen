@@ -1,5 +1,3 @@
-from ..sched import meta
-
 CALLPATH_ATTR_NAME = 'pexen_factory_callpath_'
 
 def get_callpath(obj):
@@ -12,14 +10,8 @@ class BaseFactory:
     def __call__(self):
         pass
 
-    @staticmethod
-    def is_valid_callable(obj):
-        if callable(obj) and meta.has_meta(obj):
-            return True
-        return False
-
-    def callpath_start(self, startfrom):
-        self.callpath = startfrom.copy()
+    def callpath_transfer(self, tofactory):
+        tofactory.callpath = self.callpath
 
     def callpath_push(self, name):
         self.callpath.append(name)

@@ -38,7 +38,13 @@ Running subfactories from a current factory:
 
 3) before calling the subfactory, the current factory must initialize it:
 
-3a) sub.callpath_start(self.callpath) must be called to pass existing callpath
+3a) self.callpath_transfer(subfactory) must be called to pass existing callpath
 
-4) when running the subfactory, the current factory should use 'yield from' to
+4) a subfactory may generate callables with the same callpath as its parent
+
+4a) alternatively, the parent factory may wrap the subfactory call within
+    self.callpath_push(name) and self.callpath_pop() to group the
+    subfactory-generated callables under a new callpath level
+
+5) when running the subfactory, the current factory should use 'yield from' to
    allow unrestricted access to the subfactory iterator/generator

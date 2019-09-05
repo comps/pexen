@@ -2,39 +2,41 @@ import importlib
 import inspect
 import pkgutil
 
-from . import base
+from .base import BaseFactory
+from .module import ModuleFactory
 
-class ModTreeFactory(base.BaseFactory):
+class ModTreeFactory(BaseFactory):
+    def __init__(self, match=None):
+        super().__init__()
+        self.match = match
+
     @staticmethod
-    def _import_from_path(path, name):
+    def import_from_path(path, name):
         """Load a module by a filesystem path."""
         if isinstance(path, importlib.machinery.FileFinder):
             spec = path.find_spec(name)
         else:
             spec = importlib.machinery.PathFinder.find_spec(name, path)
         if not spec:
-            return None
+            raise ImportError(f"Could not find spec for {name}")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod
 
-    def _extract_callables(self, mod):
-        """Extract callables from an imported module."""
-        for name, obj in inspect.getmembers(mod):
-            if not self.is_valid_callable(obj):
-                continue
-            self.callpath_burn(obj, name)
-            yield obj
+    def _extract_from_mod(self, mod):
+        subf = ModuleFactory(match=self.match)
+        self.callpath_transfer(subf)
+        yield from subf(mod)
 
     def _walk_one(self, startfrom):
-        yield from self._extract_callables(startfrom)
+        yield from self._extract_from_mod(startfrom)
         for filefinder, modname, ispkg in pkgutil.iter_modules(startfrom.__path__):
-            mod = self._import_from_path(filefinder, modname)
+            mod = self.import_from_path(filefinder, modname)
             self.callpath_push(modname)
             if ispkg:
                 yield from self._walk_one(mod)
             else:
-                yield from self._extract_callables(mod)
+                yield from self._extract_from_mod(mod)
             self.callpath_pop()
 
     def __call__(self, startmod):
