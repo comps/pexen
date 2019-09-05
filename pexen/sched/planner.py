@@ -358,7 +358,7 @@ class Sched:
                 pool.submit(task, shared)
 
             # no new tasks to schedule, just cycle here in pool.iter_results()
-            if not frontline:
+            if not frontline and pool.empty():
                 pool.shutdown()
 
         # there may still be unsatisfied deps/mutexes if a task failed

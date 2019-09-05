@@ -70,6 +70,20 @@ def test_requires_provides(pool):
     res = list(s.run(pooltype=pool))
     assert res == [TaskRes(dummy2), TaskRes(dummy1)]
 
+@parametrize_pool_both()
+def test_wait_for_deps(pool):
+    # when frontline gets exhausted while there are still some tasks
+    # to run within deps references, the planner should not exit
+    dummy1 = create_dummy('dummy1')
+    sched.meta.assign_val(dummy1, provides=['one'])
+    dummy2 = create_dummy('dummy2')
+    sched.meta.assign_val(dummy2, requires=['one'], provides=['two'])
+    dummy3 = create_dummy('dummy3')
+    sched.meta.assign_val(dummy3, requires=['two'])
+    s = sched.Sched([dummy1, dummy2, dummy3])
+    res = list(s.run(pooltype=pool, workers=4))
+    assert res == [TaskRes(dummy1), TaskRes(dummy2), TaskRes(dummy3)]
+
 #
 # Locks (uses/claims)
 #
