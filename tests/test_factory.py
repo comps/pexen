@@ -22,3 +22,11 @@ def test_modtree():
     assert get_callpath(dummy3) == ['subdummygen', 'dummy3']
     assert get_callpath(minidummy100) == ['subdummygen', 'minidummy100']
     assert get_callpath(dummy4) == ['subdummygen', 'subdummygen', 'dummy4']
+
+def test_modtree_fnmatch():
+    f = factory.ModTreeFactory()
+    nomatch = set(f(modtree_root))
+    assert 'test_metaless_dummy' not in (x.__name__ for x in nomatch)
+    f = factory.ModTreeFactory(match='test_*')
+    match = set(f(modtree_root))
+    assert 'test_metaless_dummy' in (x.__name__ for x in match)
