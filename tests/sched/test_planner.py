@@ -76,6 +76,8 @@ def test_restart(pool):
 #       set(self.tasks) gets rewritten to something ordered (ie. dict keys),
 #       we can guarantee best effort first-last ordering for execution
 
+# TODO: try .run() with empty task set
+
 
 
 #

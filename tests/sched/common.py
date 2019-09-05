@@ -83,12 +83,12 @@ def create_dummy_shared_kwargs(name, sh):
         return kwargs
     return dummy_shared_kwargs
 
-def create_dummy_that_types(name, queue, letter=None, every=0.1, total=5):
+def create_dummy_that_types(name, letter=None, every=0.1, total=5):
     if not letter:
         letter = name[-1]  # last letter of name
-    def dummy_typing(*, queue):
+    def dummy_typing(*, q):
         for i in range(total):
-            queue.put(str(letter))
+            q.put(str(letter))
             time.sleep(every)
     return dummy_typing
 

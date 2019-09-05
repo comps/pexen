@@ -81,10 +81,10 @@ class DepMap:
                 else:
                     self.map[req] = {task: reqs}
 
-    def _valid_provide(self, provide):
+    def _valid_provide(self, task, provide):
         """Sanity check if a provide is known/valid."""
         if provide not in self.map:
-            warnings.warn(f"Dep \"{provide}\" provided by {task}, "
+            warnings.warn(f"Dep '{provide}' provided by {task}, "
                           "but not required by any task",
                           category=util.PexenWarning)
             return False
@@ -93,7 +93,7 @@ class DepMap:
     def children(self, task):
         """Return children tasks of a task, per requires/provides relations."""
         for provide in meta.get_provides(task):
-            if self._valid_provide(provide):
+            if self._valid_provide(task, provide):
                 yield from self.map[provide].keys()
 
     def satisfy(self, task):
@@ -102,7 +102,7 @@ class DepMap:
         Return tasks ready to be run (all requires satisfied).
         """
         for provide in meta.get_provides(task):
-            if self._valid_provide(provide):
+            if self._valid_provide(task, provide):
                 ctasks = self.map.pop(provide)
                 for ctask, creqs in ctasks.items():
                     creqs.remove(provide)
@@ -200,12 +200,13 @@ class MutexMap:
         self.rolocks = {}  # points to sets of tasks
         self.rwlocks = {}  # points to one task object
         # if tasks are provided, run sanity on them
-        self._sanity_check(tasks)
+        self.sanity_check(tasks)
 
     def __len__(self):
         return len(self.rolocks) + len(self.rwlocks)
 
-    def _sanity_check(self, tasks):
+    @staticmethod
+    def sanity_check(tasks):
         for task in tasks:
             uses = meta.get_uses(task)
             claims = meta.get_claims(task)
@@ -287,6 +288,7 @@ class Sched:
         self.tasks.update(set(new))
         self.depmap = DepMap(self.tasks)
         if __debug__:
+            MutexMap.sanity_check(self.tasks)
             self.depmap.simulate(self.tasks)
             self.depmap = DepMap(self.tasks)
 
