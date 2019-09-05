@@ -1,0 +1,44 @@
+TODO: rewrite this to some more official form
+
+
+These are API rules for every factory.
+
+1) factory is a class, a subclass of pexen.factory.BaseFactory
+
+2) it is initialized via __init__ like a regular class instance
+
+2a) the __init__ function may have any arguments deemed suitable
+
+2b) the factory may use parent __init__, it does not need to define its own
+
+2c) if the factory defines its own __init__, it needs to call
+    super().__init__ as well
+
+3) a factory instance returned after __init__ is not yet running
+
+4) the instance may have any number of arbitrary private or public functions
+   further tweaking its function / settings
+
+5) the instance is run as a callable object, eg. via __call__
+
+5a) the __call__ function may have any arguments it sees fit
+
+6) this produces an iterable object (iterator/generator) that yields callables
+
+7) the factory instance should be re-usable (__call__ called repeatedly)
+
+
+Running subfactories from a current factory:
+
+1) a factory may instantiate and run another factory, based on some condition
+   encountered while generating callables
+   (ie. a .py module found while looking for executable files in a fs tree)
+
+2) the subfactory must not be passed outside the scope of the current factory
+
+3) before calling the subfactory, the current factory must initialize it:
+
+3a) sub.callpath_start(self.callpath) must be called to pass existing callpath
+
+4) when running the subfactory, the current factory should use 'yield from' to
+   allow unrestricted access to the subfactory iterator/generator

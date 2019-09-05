@@ -24,24 +24,18 @@ class ModTreeFactory(base.BaseFactory):
             if not self.is_valid_callable(obj):
                 continue
             self.callpath_burn(obj, name)
-            self.callables.append(obj)
-
-    def open(self, startmod):
-        """Open/connect/init a source of callables."""
-        self.startmod = startmod
+            yield obj
 
     def _walk_one(self, startfrom):
-        self._extract_callables(startfrom)
+        yield from self._extract_callables(startfrom)
         for filefinder, modname, ispkg in pkgutil.iter_modules(startfrom.__path__):
             mod = self._import_from_path(filefinder, modname)
             self.callpath_push(modname)
             if ispkg:
-                self._walk_one(mod)
+                yield from self._walk_one(mod)
             else:
-                self._extract_callables(mod)
+                yield from self._extract_callables(mod)
             self.callpath_pop()
 
-    def walk(self):
-        """Recursively retrieve valid callables into self.callables."""
-        self._walk_one(self.startmod)
-        return self.callables
+    def __call__(self, startmod):
+        yield from self._walk_one(startmod)

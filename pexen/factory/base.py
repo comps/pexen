@@ -6,16 +6,20 @@ def get_callpath(obj):
     return getattr(obj, CALLPATH_ATTR_NAME)
 
 class BaseFactory:
-    def __init__(self, *args, **kwargs):
-        self.callables = []
+    def __init__(self):
         self.callpath = []
-        self.open(*args, **kwargs)
+
+    def __call__(self):
+        pass
 
     @staticmethod
     def is_valid_callable(obj):
         if callable(obj) and meta.has_meta(obj):
             return True
         return False
+
+    def callpath_start(self, startfrom):
+        self.callpath = startfrom.copy()
 
     def callpath_push(self, name):
         self.callpath.append(name)
@@ -28,11 +32,3 @@ class BaseFactory:
         if objname:
             path.append(objname)
         setattr(obj, CALLPATH_ATTR_NAME, path)
-
-    def open(self):
-        """Open/connect/init a source of callables."""
-        pass
-
-    def walk(self):
-        """Recursively retrieve valid callables into self.callables."""
-        pass

@@ -4,8 +4,8 @@ from pexen.factory import get_callpath
 from tests.factory_test_data import modtree as modtree_root
 
 def test_modtree():
-    f = factory.ModTreeFactory(modtree_root)
-    funcs = f.walk()
+    f = factory.ModTreeFactory()
+    funcs = list(f(modtree_root))
     dummy2 = next(x for x in funcs if x.__name__ == 'dummy2')
     dummy3 = next(x for x in funcs if x.__name__ == 'dummy3')
     assert sched.meta.get_provides(dummy2) == {'dummy2done',}
