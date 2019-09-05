@@ -49,14 +49,10 @@ essentially just an example way of how to generate callables.
 
 ### Scheduler
 
-Takes a list of callables, optionally annotated by `@pexen.attr.func_attr`,
-optionally with metadata (`@pexen.attr.func_attr(key1=val1, key2=val2)`) with
-possible keys:
+Takes a list of callables, optionally annotated by
+`@pexen.sched.meta.func_meta`, optionally with metadata
+(`@pexen.sched.meta.func_meta(key1=val1, key2=val2)`) with possible keys:
 
-* `callpath` - not used by scheduler, but set up by the factory logic;
-  uses a list to represent hierarchy level and name of the callable, for use
-  by the user when processing results,
-  ie. `['kernel', 'fs', 'ext4', 'test_open']`
 * `requires` - a list of strings or other objects supporting comparison (`==`);
   the callable won't be run unless all of these are provided by other callables
 * `provides` - a list of strings or other objects supporting comparison (`==`);
@@ -88,43 +84,43 @@ Each callable can either be argument-less or can define either or both of
 The callable can also return any value, however this value needs to be picklable
 if using `ProcessWorkerPool`.
 
-The returned result to the user program is one tuple per one executed callable,
-with the tuple consisting of:
+The returned result to the user program is one tuple (`pexen.sched.TaskRes`) per
+one executed callable, with the tuple consisting of:
 
-* [0]: the callable object that finished executing
-* [1]: its shared state (the `shared` arg) when it finished execution, or `None`
-  if it aborted prematurely with an exeception
-* [2]: the return value of the callable or `None` in case of exception
-* [3]: `sys.exc_info()` if the callable encountered an exception, or `None` on
-  success; note that some of the fields may be `None` if they failed
-  picklability checks and `ProcessWorkerPool` was used
+* `TaskRes.task`: the callable object that finished executing
+* `Taskres.shared`: its shared state (the `shared` arg) when it finished running
+* `TaskRes.ret`: the return value of the callable or `None` in case of exception
+* `TaskRes.excinfo`: `pexen.sched.ExceptionInfo` populated by `sys.exc_info()`
+   if the callable encountered an exception, or `None` on success
+   * note that some of the fields may be `None` if they failed picklability
+     checks and `ProcessWorkerPool` was used, but the `TaskRes.excinfo` field
+     will still be a tuple of `None` elements, not `None` itself
 
 ### Scheduler Example
 
-Until I write a better set of examples, take a look at `tests/`, particularly
-`tests/test_sched.py`.
+Until I write a better set of examples, take a look at `tests/`.
 
 ```python
 #!/usr/bin/env python3
   
 from pprint import pprint
 from time import sleep
-from pexen import attr, sched
+from pexen import sched
 
 def greet():
     return "Hello World!"
 
-@attr.func_attr(provides=[1])
+@sched.meta.func_meta(provides=[1])
 def get_password(shared):
     shared['pw'] = 123456
     sleep(1)
 
-@attr.func_attr(provides=[2], kwargs={'account': 'john'})
+@sched.meta.func_meta(provides=[2], kwargs={'account': 'john'})
 def get_user(shared, *, account='Unknown'):
     shared['login'] = account
     sleep(1)
 
-@attr.func_attr(requires=[1,2])
+@sched.meta.func_meta(requires=[1,2])
 def format_msg(shared):
     msg = f"user: {shared['login']} with pw: {shared['pw']}"
     shared.clear()  # hide evidence
@@ -148,10 +144,28 @@ pprint(results)
 # also shows how to iterate over results
 # also makes the greeting go first (as it doesn't require anything)
 print("===")
-attr.assign_val(greet, priority=-1)
+sched.meta.assign_val(greet, priority=-1)
 s = sched.Sched(tasks)
-for res in s.run(pooltype=sched.ProcessWorkerPool):
+for res in s.run(pooltype=sched.pool.ProcessWorkerPool):
     print(res)
+```
+Output:
+```
+===
+[TaskRes(task=<function get_user at 0x7f0839bc4320>, shared={'login': 'john'}, ret=None, excinfo=None),
+ TaskRes(task=<function get_password at 0x7f0839b719e0>, shared={'pw': 123456}, ret=None, excinfo=None),
+ TaskRes(task=<function greet at 0x7f0839c37170>, shared={}, ret='Hello World!', excinfo=None),
+ TaskRes(task=<function format_msg at 0x7f0839bc45f0>, shared={}, ret='user: john with pw: 123456', excinfo=None)]
+===
+[TaskRes(task=<function greet at 0x7f0839c37170>, shared={}, ret='Hello World!', excinfo=None),
+ TaskRes(task=<function get_user at 0x7f0839bc4320>, shared={'login': 'john'}, ret=None, excinfo=None),
+ TaskRes(task=<function get_password at 0x7f0839b719e0>, shared={'pw': 123456}, ret=None, excinfo=None),
+ TaskRes(task=<function format_msg at 0x7f0839bc45f0>, shared={}, ret='user: john with pw: 123456', excinfo=None)]
+===
+TaskRes(task=<function greet at 0x7f0839c37170>, shared={}, ret='Hello World!', excinfo=None)
+TaskRes(task=<function get_user at 0x7f0839bc4320>, shared={'login': 'john'}, ret=None, excinfo=None)
+TaskRes(task=<function get_password at 0x7f0839b719e0>, shared={'pw': 123456}, ret=None, excinfo=None)
+TaskRes(task=<function format_msg at 0x7f0839bc45f0>, shared={}, ret='user: john with pw: 123456', excinfo=None)
 ```
 
 ## Limitations
@@ -194,10 +208,3 @@ readability.
     to lots of tests.
   * Also useful for tasks that should logically run "together", possibly
     needing sequential execution due to formal requirements.
-
-* Conditional provides
-  * Don't fulfill requires of dependent tasks if the current task (callable)
-    fails
-    * Fails = tracebacks? Returns a specific value? Returns anything other than
-      a specific value?
-    * Have an attr with a comparison callable to determine failure?

@@ -185,6 +185,9 @@ def test_failed_parent(pool):
 # TODO: combine failing tasks with leftover deps + failing tasks with unreleased mutexes
 # TODO: test MutexError (same key in claims and uses)
 
+# TODO: TaskRes.shared should be populated even if the task failed with uncontrollably with exception
+#       (damaged state left to user, not propagated to other tasks)
+
 #
 # Picklability checks
 #

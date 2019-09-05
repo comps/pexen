@@ -21,3 +21,8 @@ def test_pool_reuse(pool, reuse_task_list):
     p.shutdown(wait=True)
     res = list(p.iter_results())
     assert res == [TaskRes(dummy2)]
+
+# TODO: pool.shutdown() while active tasks are still running
+#        - iter_results() should work just fine
+
+# TODO: iter_results() after all tasks have finished (pool.empty() == True)
