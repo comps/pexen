@@ -1,0 +1,17 @@
+- 'manager' class, glue for factory+sched
+  - at least one manager - test suite runner (pass/fail/error/etc.)
+
+- sched.GroupSched class - wrapper for multiple chained Sched runs
+  - metadata-defined workers/spare
+  - should be kinda easy
+
+- sched.Sched premature shutdown (see TODO in .py)
+
+- adding new tasks on the fly
+  - task indexing logic inside Pool will need to be redone
+  - lifting many implementation limitations
+  - Pool.simulate would still be applicable/doable as nothing new is scheduled
+    while we're checking the deps
+  - .register() function to pre-register callables that might be add_tasks-ed
+    (no-op for Thread-based pool)
+

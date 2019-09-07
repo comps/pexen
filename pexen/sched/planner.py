@@ -317,7 +317,7 @@ class Sched:
 
         self.lockmap = MutexMap(self.tasks)
         self.sharedmap = SharedMap(self.tasks, initstate=self.default_shared)
-        pool = pooltype(alltasks=self.tasks, workers=workers, spare=spare)
+        pool = pooltype(tasks=self.tasks, workers=workers, spare=spare)
 
         # initial frontline - tasks without deps and without locks
         # (or with successfully acquired locks)

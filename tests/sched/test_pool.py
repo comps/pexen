@@ -16,7 +16,7 @@ def test_pool_reuse(pool, reuse_task_list):
     p.shutdown(wait=True)
     res = list(p.iter_results())
     assert res == [TaskRes(dummy1)]
-    p.start_pool() if reuse_task_list else p.start_pool(alltasks=[dummy2])
+    p.start_pool() if reuse_task_list else p.start_pool(tasks=[dummy2])
     p.submit(dummy2)
     p.shutdown(wait=True)
     res = list(p.iter_results())
@@ -26,3 +26,5 @@ def test_pool_reuse(pool, reuse_task_list):
 #        - iter_results() should work just fine
 
 # TODO: iter_results() after all tasks have finished (pool.empty() == True)
+
+# TODO: tests for adding tasks during runtime; both thread and pool

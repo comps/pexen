@@ -33,7 +33,7 @@ class ProcessWorkerPool:
     _Queue = multiprocessing.Queue
     _Worker = multiprocessing.Process
 
-    def __init__(self, alltasks, workers=1, spare=1):
+    def __init__(self, tasks=[], workers=1, spare=1):
         self.alive_workers = 0
         self.taskq = self._Queue()
         self.resultq = self._Queue()
@@ -43,11 +43,10 @@ class ProcessWorkerPool:
         #   a potentially unpicklable callable
         # - it lets the worker return a picklable integer, which we then
         #   transform back to the callable before returning it to the user
-        self.task_map = {}
-        self.start_pool(workers, spare, alltasks)
+        self.taskmap = {}
+        self.start_pool(tasks, workers, spare)
 
-    @staticmethod
-    def _worker_body(workid, alltasks, outqueue, inqueue):
+    def _worker_body(self, workid, outqueue, inqueue):
         while True:
             taskinfo = inqueue.get()
             if taskinfo is None:
@@ -56,7 +55,7 @@ class ProcessWorkerPool:
                 break
             try:
                 taskidx, shared = taskinfo
-                task = alltasks[taskidx]
+                task = self.taskmap[taskidx]
                 kwargs = meta.get_kwargs(task)
                 ret = None
                 # support special case: argument-less task, for simplicity
@@ -110,16 +109,14 @@ class ProcessWorkerPool:
     #         are scheduled *after* these queued tasks, any mutexes (claims) are
     #         held even if the queued task is not yet running, etc.
 
-    def start_pool(self, workers=1, spare=1, alltasks=None):
+    def start_pool(self, tasks=[], workers=1, spare=1):
         if self.alive_workers > 0:
             raise PoolError("Cannot re-start a running pool")
-        if alltasks:
-            self.task_map = dict(((id(t), t) for t in alltasks))
+        self.register(tasks)
         self.workers = []
         for workid in range(workers):
             w = self._Worker(target=self._worker_body,
-                             args=(workid, self.task_map,
-                                   self.resultq, self.taskq))
+                             args=(workid, self.resultq, self.taskq))
             w.start()
             self.workers.append(w)
         self.alive_workers = workers
@@ -135,12 +132,24 @@ class ProcessWorkerPool:
     def idlecnt(self):
         return self.max_tasks - self.active_tasks
 
+    # TODO: test registering new tasks between restarts of the same pool
+
+    def register(self, tasks):
+        if self.active_tasks > 0:
+            raise PoolError("Cannot register tasks while the pool is running")
+        for task in tasks:
+            self.taskmap[id(task)] = task
+
+    # mp:  just check + raise if not present
+    # thr: just update, don't check
+    def _check_update_taskmap(self, task):
+        if id(task) not in self.taskmap:
+            raise PoolError(f"Cannot submit unregistered task {task}.")
+
     def submit(self, task, shared={}):
         if self.shutting_down:
             raise PoolError("Cannot submit tasks, the pool is shutting down")
-        if id(task) not in self.task_map:
-            raise PoolError(f"Cannot submit unknown task {task}, "
-                            "it was not provided before pool start.")
+        self._check_update_taskmap(task)
         self.taskq.put((id(task), shared))
         self.active_tasks += 1
 
@@ -169,7 +178,7 @@ class ProcessWorkerPool:
                 self.workers[msg.workid].join()
                 self.alive_workers -= 1
             elif msg.msgtype == 'taskdone':
-                task = self.task_map[msg.taskidx]
+                task = self.taskmap[msg.taskidx]
                 self.active_tasks -= 1
                 yield common.TaskRes(task, msg.shared, msg.ret, msg.excinfo)
             else:
@@ -179,3 +188,8 @@ class ThreadWorkerPool(ProcessWorkerPool):
     _Queue = queue.Queue
     _Worker = threading.Thread
 
+    def register(self, tasks):
+        pass
+
+    def _check_update_taskmap(self, task):
+        self.taskmap[id(task)] = task
