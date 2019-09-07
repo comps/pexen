@@ -31,7 +31,7 @@ def check_resources():
     # check for zombies; while this may work on other *nixes, the semantics
     # will vary, so limit this just to Linux - non-zombies are double-checked
     # below anyway, platform-independent
-    if sys.platform.startswith('alinux'):
+    if sys.platform.startswith('linux'):
         parent = psutil.Process()
         children = list(parent.children())
         zombies = [p for p in children if p.status() == psutil.STATUS_ZOMBIE]

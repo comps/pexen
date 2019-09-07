@@ -21,7 +21,7 @@ def _is_picklable(obj):
         return False
 
 # used internally by WorkerPool classes
-_PoolWorkerMsg = namedtuple('_PoolWorkerMsg', ['workid', 'msgtype', 'taskidx',
+_PoolWorkerMsg = namedtuple('_PoolWorkerMsg', ['workid', 'type', 'taskidx',
                                                'shared', 'ret', 'excinfo'])
 # TODO: use Python 3.7 namedtuple defaults
 _PoolWorkerMsg.__new__.__defaults__ = (None,) * len(_PoolWorkerMsg._fields)
@@ -33,18 +33,19 @@ class ProcessWorkerPool:
     _Queue = multiprocessing.Queue
     _Worker = multiprocessing.Process
 
-    def __init__(self, tasks=[], workers=1, spare=1):
-        self.alive_workers = 0
+    def __init__(self):
+        self.unfinished_workers = 0
         self.taskq = self._Queue()
         self.resultq = self._Queue()
         self.active_tasks = 0
+        self.shutting_down = False
+        self.workers = []
         # this serves two purposes:
         # - it lets us pass a picklable integer into the worker instead of
         #   a potentially unpicklable callable
         # - it lets the worker return a picklable integer, which we then
         #   transform back to the callable before returning it to the user
         self.taskmap = {}
-        self.start_pool(tasks, workers, spare)
 
     def _worker_body(self, workid, outqueue, inqueue):
         while True:
@@ -109,17 +110,16 @@ class ProcessWorkerPool:
     #         are scheduled *after* these queued tasks, any mutexes (claims) are
     #         held even if the queued task is not yet running, etc.
 
-    def start_pool(self, tasks=[], workers=1, spare=1):
-        if self.alive_workers > 0:
+    def start(self, workers=1, spare=1):
+        if self.unfinished_workers > 0:
             raise PoolError("Cannot re-start a running pool")
-        self.register(tasks)
         self.workers = []
         for workid in range(workers):
             w = self._Worker(target=self._worker_body,
                              args=(workid, self.resultq, self.taskq))
             w.start()
             self.workers.append(w)
-        self.alive_workers = workers
+        self.unfinished_workers = workers
         self.max_tasks = workers + spare
         self.shutting_down = False
 
@@ -132,10 +132,24 @@ class ProcessWorkerPool:
     def idlecnt(self):
         return self.max_tasks - self.active_tasks
 
-    # TODO: test registering new tasks between restarts of the same pool
+    # self.unfinished_workers represent how many workers owe us
+    # msg.type==finished so that we know whether we should wait for more task
+    # results to come from the queue in self.iter_results() or return to user
+    # - this will be 0 if the user exhausted all iter_results()
+    # - but it will be non-0 if the user just called shutdown(wait=True)
+    #
+    # self.alive represents how many actual OS threads or processes are running
+    # so we know when it's safe to modify the shared non-fork()ed state
+    # - this will be 0 regardless of whether the user called iter_results()
+    # - it will be 0 after shutdown(wait=True) returns
+    # - it may be non-0 right after shutdown(wait=False), but it will itself
+    #   eventually become 0 as the workers exit when finished
+
+    def alive(self):
+        return any((x.is_alive() for x in self.workers))
 
     def register(self, tasks):
-        if self.active_tasks > 0:
+        if self.alive():
             raise PoolError("Cannot register tasks while the pool is running")
         for task in tasks:
             self.taskmap[id(task)] = task
@@ -144,18 +158,20 @@ class ProcessWorkerPool:
     # thr: just update, don't check
     def _check_update_taskmap(self, task):
         if id(task) not in self.taskmap:
-            raise PoolError(f"Cannot submit unregistered task {task}.")
+            raise PoolError(f"Cannot submit unregistered task {task}")
 
     def submit(self, task, shared={}):
         if self.shutting_down:
-            raise PoolError("Cannot submit tasks, the pool is shutting down")
+            raise PoolError("The pool is shutting down")
+        if not self.alive():
+            raise PoolError("The pool is not running")
         self._check_update_taskmap(task)
         self.taskq.put((id(task), shared))
         self.active_tasks += 1
 
     def shutdown(self, wait=False):
         if self.shutting_down:
-            return
+            raise PoolError("The pool is already shutting down")
         self.shutting_down = True
         for _ in range(len(self.workers)):
             self.taskq.put(None)
@@ -172,12 +188,12 @@ class ProcessWorkerPool:
     #       multiple iterators
     #       also document that they are NOT thread or process safe
     def iter_results(self):
-        while self.alive_workers > 0 or self.active_tasks > 0:
+        while self.unfinished_workers > 0 or self.active_tasks > 0:
             msg = self.resultq.get()
-            if msg.msgtype == 'finished':
+            if msg.type == 'finished':
                 self.workers[msg.workid].join()
-                self.alive_workers -= 1
-            elif msg.msgtype == 'taskdone':
+                self.unfinished_workers -= 1
+            elif msg.type == 'taskdone':
                 task = self.taskmap[msg.taskidx]
                 self.active_tasks -= 1
                 yield common.TaskRes(task, msg.shared, msg.ret, msg.excinfo)

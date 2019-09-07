@@ -1,30 +1,80 @@
 import pytest
 
 from pexen.sched import TaskRes
+from pexen.sched.pool import PoolError
 
 from tests.sched.common import *
 from tests.sched.common import check_resources
 
-@pytest.mark.parametrize('reuse_task_list', [True, False],
-                         ids=['reused-task-list', 'new-task-list'])
 @parametrize_pool_both()
-def test_pool_reuse(pool, reuse_task_list):
+def test_pool_reuse(pool):
     dummy1 = create_dummy('dummy1')
     dummy2 = create_dummy('dummy2')
-    p = pool([dummy1,dummy2]) if reuse_task_list else pool([dummy1])
+    p = pool()
+    p.register([dummy1])
+    p.start()
     p.submit(dummy1)
     p.shutdown(wait=True)
-    res = list(p.iter_results())
+    assert not p.empty()
+    assert not p.alive()
+    res = list(p.iter_results())  # also tests results-after-shutdown
+    assert p.empty()
     assert res == [TaskRes(dummy1)]
-    p.start_pool() if reuse_task_list else p.start_pool(tasks=[dummy2])
+    p.register([dummy2])
+    p.start()
+    p.submit(dummy1)
     p.submit(dummy2)
     p.shutdown(wait=True)
+    assert not p.empty()
+    assert not p.alive()
+    res = list(p.iter_results())  # also tests results-after-shutdown
+    assert p.empty()
+    assert TaskRes(dummy1) in res
+    assert TaskRes(dummy2) in res
+
+@parametrize_pool_both()
+def test_shutdown_without_gather(pool):
+    dummy1 = create_dummy('dummy1')
+    p = pool()
+    p.register([dummy1])
+    p.start()
+    p.submit(dummy1)
+    p.shutdown(wait=True)
+
+from time import sleep
+
+@parametrize_pool_thread()
+def test_onthefly_thread(pool):
+    dummy1 = create_dummy('dummy1')
+    dummy2 = create_dummy('dummy2')
+    p = pool()
+    p.register([dummy1])
+    p.start()
+    p.submit(dummy1)
+    p.submit(dummy2)
+    assert p.alive()
+    p.shutdown()
     res = list(p.iter_results())
-    assert res == [TaskRes(dummy2)]
+    assert not p.alive()
+    assert TaskRes(dummy1) in res
+    assert TaskRes(dummy2) in res
 
-# TODO: pool.shutdown() while active tasks are still running
-#        - iter_results() should work just fine
-
-# TODO: iter_results() after all tasks have finished (pool.empty() == True)
-
-# TODO: tests for adding tasks during runtime; both thread and pool
+@parametrize_pool_process()
+def test_onthefly_process(pool):
+    dummy1 = create_dummy('dummy1')
+    dummy2 = create_dummy('dummy2')
+    p = pool()
+    p.register([dummy1])
+    p.start()
+    with pytest.raises(PoolError) as exc:
+        p.register([dummy2])
+    assert "Cannot register tasks while the pool is running" in str(exc.value)
+    p.submit(dummy1)
+    with pytest.raises(PoolError) as exc:
+        p.submit(dummy2)
+    assert "Cannot submit unregistered task" in str(exc.value)
+    assert p.alive()
+    p.shutdown()
+    res = list(p.iter_results())
+    assert not p.alive()
+    assert TaskRes(dummy1) in res
