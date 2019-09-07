@@ -40,8 +40,6 @@ def check_resources():
         assert not children, \
             f"{len(children)} extra child processes still running"
     # check for non-zombies
-    assert thr.active_count() == 1, \
-        f"{thr.active_count()-1} extra threads left around"
     assert not mp.active_children(), \
         f"{len(mp.active_children())} extra processes still running"
 
