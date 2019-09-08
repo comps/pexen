@@ -41,8 +41,6 @@ def test_shutdown_without_gather(pool):
     p.submit(dummy1)
     p.shutdown(wait=True)
 
-from time import sleep
-
 @parametrize_pool_thread()
 def test_onthefly_thread(pool):
     dummy1 = create_dummy('dummy1')
@@ -78,3 +76,19 @@ def test_onthefly_process(pool):
     res = list(p.iter_results())
     assert not p.alive()
     assert TaskRes(dummy1) in res
+
+@parametrize_pool_thread()
+def test_submit_tail(pool):
+    dummy1 = create_dummy('dummy1')
+    dummy2 = create_dummy('dummy2')
+    p = pool()
+    p.register([dummy1,dummy2])
+    p.start()
+    p.submit(dummy1)
+    res = p.iter_results()
+    assert TaskRes(dummy1) == next(res)
+    p.submit(dummy2)
+    assert TaskRes(dummy2) == next(res)
+    p.shutdown()
+    with pytest.raises(StopIteration):
+        next(res)
