@@ -1,5 +1,4 @@
 from pexen import factory, sched
-from pexen.factory import get_callpath
 
 from tests.factory_test_data import modtree as modtree_root
 
@@ -17,11 +16,11 @@ def test_modtree():
     dummy1 = next(x for x in funcs if x.__name__ == 'dummy1')
     minidummy100 = next(x for x in funcs if x.__name__ == 'minidummy') # first
     dummy4 = next(x for x in funcs if x.__name__ == 'dummy4')
-    assert get_callpath(dummy1) == ['dummy1']
-    assert get_callpath(dummy2) == ['dummygen', 'dummy2']
-    assert get_callpath(dummy3) == ['subdummygen', 'dummy3']
-    assert get_callpath(minidummy100) == ['subdummygen', 'minidummy100']
-    assert get_callpath(dummy4) == ['subdummygen', 'subdummygen', 'dummy4']
+    assert factory.get_callpath(dummy1) == ['dummy1']
+    assert factory.get_callpath(dummy2) == ['dummygen', 'dummy2']
+    assert factory.get_callpath(dummy3) == ['subdummygen', 'dummy3']
+    assert factory.get_callpath(minidummy100) == ['subdummygen', 'minidummy100']
+    assert factory.get_callpath(dummy4) == ['subdummygen', 'subdummygen', 'dummy4']
 
 def test_modtree_fnmatch():
     f = factory.ModTreeFactory()

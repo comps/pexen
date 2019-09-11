@@ -273,8 +273,6 @@ class MutexMap:
         """Release any locks held by a task."""
         self._release_locks(task)
 
-# TODO: task groups / exclusivity (based on pool restarting)
-
 class Sched:
     def __init__(self, tasks=set()):
         # all added callables
@@ -296,7 +294,6 @@ class Sched:
         """Pre-set key/values in the default shared space."""
         self.default_shared.update(kwargs)
 
-    # TODO: document controlled fail / raising TaskFailError
     @staticmethod
     def _is_controlled_fail(excinfo):
         """Return True if the task exception is a user-induced one,
@@ -311,16 +308,18 @@ class Sched:
     #       again after it finishes? .. do we need to add_tasks()?
     #       --> document it
 
-    def run(self, pooltype=pool.ThreadWorkerPool, workers=1, spare=1):
+    def run(self, poolinst=None):
         if not self.tasks:
             return
 
         self.lockmap = MutexMap(self.tasks)
         self.sharedmap = SharedMap(self.tasks, initstate=self.default_shared)
 
-        pool = pooltype()
-        pool.register(self.tasks)
-        pool.start(workers=workers, spare=spare)
+        if not poolinst:
+            poolinst = pool.ThreadWorkerPool()
+
+        poolinst.register(self.tasks)
+        poolinst.start()
 
         # initial frontline - tasks without deps and without locks
         # (or with successfully acquired locks)
@@ -328,12 +327,12 @@ class Sched:
         frontline = self.lockmap.add(frontline)
         frontline = PriorityQueue(frontline)
 
-        while frontline and not pool.full():
+        while frontline and not poolinst.full():
             task = frontline.pop()
             shared = self.sharedmap[task]
-            pool.submit(task, shared)
+            poolinst.submit(task, shared)
 
-        for taskres in pool.iter_results():
+        for taskres in poolinst.iter_results():
             yield taskres
 
             # if it didn't fail or failed controllably
@@ -357,14 +356,14 @@ class Sched:
             del self.sharedmap[taskres.task]
 
             # and schedule as much as we can
-            while frontline and not pool.full():
+            while frontline and not poolinst.full():
                 task = frontline.pop()
                 shared = self.sharedmap[task]
-                pool.submit(task, shared)
+                poolinst.submit(task, shared)
 
             # no new tasks to schedule, just cycle here in pool.iter_results()
-            if not frontline and pool.empty():
-                pool.shutdown()
+            if not frontline and poolinst.empty():
+                poolinst.shutdown()
 
         # there may still be unsatisfied deps/mutexes if a task failed
         deps = len(self.depmap)

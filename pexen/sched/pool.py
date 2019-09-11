@@ -33,7 +33,9 @@ class ProcessWorkerPool:
     _Queue = multiprocessing.Queue
     _Worker = multiprocessing.Process
 
-    def __init__(self):
+    def __init__(self, workers=1, spare=1):
+        self.wanted_workers = workers
+        self.wanted_spare = spare
         self.unfinished_workers = 0
         self.taskq = self._Queue()
         self.resultq = self._Queue()
@@ -98,29 +100,17 @@ class ProcessWorkerPool:
                 #    except TypeError:
                 #        outqueue.put((taskidx, None, (extype, None, None)))
 
-    # TODO: document the idea of 'spare'; a buffer of pre-scheduled tasks ready
-    #       to be executed and automatically picked by the workers without any
-    #       work from the parent process (without iter_results needing to run);
-    #       used exactly like make -j5 (on 4-core machine), to avoid worker
-    #       starvation when the parent is busy processing results or scheduling
-    #       new tasks
-    #       - too small value can result in starvation if the tasks execute too
-    #         quickly and result processing takes a lot of time
-    #       - too large value causes suboptimal ordering; high priority tasks
-    #         are scheduled *after* these queued tasks, any mutexes (claims) are
-    #         held even if the queued task is not yet running, etc.
-
-    def start(self, workers=1, spare=1):
+    def start(self):
         if self.unfinished_workers > 0:
             raise PoolError("Cannot re-start a running pool")
         self.workers = []
-        for workid in range(workers):
+        for workid in range(self.wanted_workers):
             w = self._Worker(target=self._worker_body,
                              args=(workid, self.resultq, self.taskq))
             w.start()
             self.workers.append(w)
-        self.unfinished_workers = workers
-        self.max_tasks = workers + spare
+        self.unfinished_workers = self.wanted_workers
+        self.max_tasks = self.wanted_workers + self.wanted_spare
         self.shutting_down = False
 
     def full(self):
@@ -180,13 +170,6 @@ class ProcessWorkerPool:
                 w.join()
             # iter_results over queued results still valid after this
 
-    # if you need something asynchronous instead of the blocking iter_results,
-    # ie. something returning a Queue, you may need to spawn a new thread to
-    # manage the queue
-
-    # TODO: document that iter_results can be called multiple times to get
-    #       multiple iterators
-    #       also document that they are NOT thread or process safe
     def iter_results(self):
         while self.unfinished_workers > 0 or self.active_tasks > 0:
             msg = self.resultq.get()

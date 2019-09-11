@@ -22,14 +22,14 @@ from tests.sched.common import check_resources
 def test_return_value(pool):
     dummy1 = create_dummy_with_return('dummy1', 1234)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == [TaskRes(dummy1, ret=1234)]
 
 @parametrize_pool_both()
 def test_return_exception(pool):
     dummy1 = create_dummy_with_exception('dummy1', NameError)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     dummy1res = res[0]
     assert dummy1res.task == dummy1
     assert dummy1res.excinfo.type == NameError
@@ -48,12 +48,12 @@ def test_priority(pool):
     dummy2 = create_dummy('dummy2')
     sched.meta.assign_val(dummy2, priority=4)
     s = sched.Sched([dummy2, dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == [TaskRes(dummy1), TaskRes(dummy2)]
     sched.meta.assign_val(dummy1, priority=4)
     sched.meta.assign_val(dummy2, priority=3)
     s = sched.Sched([dummy2, dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == [TaskRes(dummy2), TaskRes(dummy1)]
 
 #
@@ -67,7 +67,7 @@ def test_requires_provides(pool):
     dummy2 = create_dummy('dummy2')
     sched.meta.assign_val(dummy2, provides=['dep'], priority=2)
     s = sched.Sched([dummy2, dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == [TaskRes(dummy2), TaskRes(dummy1)]
 
 @parametrize_pool_both()
@@ -81,7 +81,7 @@ def test_wait_for_deps(pool):
     dummy3 = create_dummy('dummy3')
     sched.meta.assign_val(dummy3, requires=['two'])
     s = sched.Sched([dummy1, dummy2, dummy3])
-    res = list(s.run(pooltype=pool, workers=4))
+    res = list(s.run(pool(workers=4)))
     assert res == [TaskRes(dummy1), TaskRes(dummy2), TaskRes(dummy3)]
 
 def test_required_not_provided():
@@ -124,13 +124,13 @@ def test_uses(pool):
     dummy2 = create_dummy_that_types('dummy2')
     sched.meta.assign_val(dummy2, uses=['res'], priority=2, kwargs={'q': q})
     s = sched.Sched([dummy1, dummy2])
-    res = list(s.run(pooltype=pool, workers=1))
+    res = list(s.run(pool(workers=1)))
     assert res == [TaskRes(dummy1), TaskRes(dummy2)]
     output = ''.join(map(lambda x: q.get(), range(q.qsize())))
     assert output == '1111122222'
     #s.add_tasks([dummy1, dummy2])
     s = sched.Sched([dummy1, dummy2])
-    res = list(s.run(pooltype=pool, workers=2))
+    res = list(s.run(pool(workers=2)))
     assert TaskRes(dummy1) in res
     assert TaskRes(dummy2) in res
     output = ''.join(map(lambda x: str(q.get()), range(q.qsize())))
@@ -145,13 +145,13 @@ def test_claims(pool):
     dummy2 = create_dummy_that_types('dummy2')
     sched.meta.assign_val(dummy2, claims=['res'], priority=2, kwargs={'q': q})
     s = sched.Sched([dummy1, dummy2])
-    res = list(s.run(pooltype=pool, workers=1))
+    res = list(s.run(pool(workers=1)))
     assert res == [TaskRes(dummy1), TaskRes(dummy2)]
     output = ''.join(map(lambda x: q.get(), range(q.qsize())))
     assert output == '1111122222'
     #s.add_tasks([dummy1, dummy2])
     s = sched.Sched([dummy1, dummy2])
-    res = list(s.run(pooltype=pool, workers=2))
+    res = list(s.run(pool(workers=2)))
     assert TaskRes(dummy1) in res
     assert TaskRes(dummy2) in res
     output = ''.join(map(lambda x: str(q.get()), range(q.qsize())))
@@ -170,7 +170,7 @@ def test_shared(pool):
     dummy2 = create_dummy_with_shared('dummy2', 2345)
     sched.meta.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     dummy2res, dummy1res = res  # order guaranteed by dep
     assert dummy2res == TaskRes(dummy2, shared={'dummy2': 2345})
     assert dummy1res == TaskRes(dummy1, shared={'dummy2': 2345, 'dummy1': 1234})
@@ -182,7 +182,7 @@ def test_preset_shared(pool):
     s = sched.Sched([dummy1, dummy2])
     s.add_shared(bothx=4444, dummy2=6666)
     s.add_shared(bothy=5555)
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert TaskRes(dummy1, shared={'bothx': 4444, 'bothy': 5555,
                                    'dummy1': 1234, 'dummy2': 6666}) in res
     # pre-set 6666 was overwritten and propagated to parent
@@ -195,7 +195,7 @@ def test_kwargs(pool):
     args = {'testargs': 1234}
     sched.meta.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == [TaskRes(dummy1, ret=args)]
 
 @parametrize_pool_both()
@@ -204,7 +204,7 @@ def test_shared_kwargs(pool):
     args = {'testargs': 2345}
     sched.meta.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == [TaskRes(dummy1, shared={'dummy1': 1234}, ret=args)]
 
 #
@@ -219,7 +219,7 @@ def test_failed_deps(pool):
     sched.meta.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
     with warnings.catch_warnings(record=True) as caught:
-        res = list(s.run(pooltype=pool))
+        res = list(s.run(pool()))
     assert len(res) == 1  # dummy1 didn't run
     dummy2res = res[0]
     assert dummy2res.task == dummy2
@@ -237,7 +237,7 @@ def test_failed_deps_controlled(pool):
     sched.meta.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
     with warnings.catch_warnings(record=True) as caught:
-        res = list(s.run(pooltype=pool))
+        res = list(s.run(pool()))
     assert len(res) == 2  # dummy1 did run
     dummy2res, dummy1res = res
     assert dummy2res.task == dummy2
@@ -254,7 +254,7 @@ def test_failed_locks(pool):
     sched.meta.assign_val(dummy2, priority=1, claims=['res'])
     s = sched.Sched([dummy1, dummy2])
     with warnings.catch_warnings(record=True) as caught:
-        res = list(s.run(pooltype=pool))
+        res = list(s.run(pool()))
     assert len(res) == 1  # dummy1 didn't run
     dummy2res = res[0]
     assert dummy2res.task == dummy2
@@ -272,7 +272,7 @@ def test_failed_locks_controlled(pool):
     sched.meta.assign_val(dummy2, priority=1, claims=['res'])
     s = sched.Sched([dummy1, dummy2])
     with warnings.catch_warnings(record=True) as caught:
-        res = list(s.run(pooltype=pool))
+        res = list(s.run(pool()))
     assert len(res) == 2  # dummy1 did run
     dummy2res, dummy1res = res
     assert dummy2res.task == dummy2
@@ -305,7 +305,7 @@ def test_unpicklable_ret(pool):
     nonpickl = create_dummy('')
     dummy1 = create_dummy_with_return('dummy1', nonpickl)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     dummy1res = res[0]
     assert dummy1res.task == dummy1
     assert dummy1res.excinfo.type == AttributeError
@@ -316,7 +316,7 @@ def test_unpicklable_shared(pool):
     nonpickl = create_dummy('')
     dummy1 = create_dummy_with_shared('dummy1', nonpickl)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     dummy1res = res[0]
     assert dummy1res.task == dummy1
     assert dummy1res.excinfo.type == AttributeError
@@ -327,7 +327,7 @@ def test_unpicklable_ret_shared(pool):
     nonpickl = create_dummy('')
     dummy1 = create_dummy_with_shared('dummy1', nonpickl, ret=nonpickl)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     dummy1res = res[0]
     assert dummy1res.task == dummy1
     assert dummy1res.excinfo.type == AttributeError
@@ -340,7 +340,7 @@ def test_unpicklable_ret_shared_thread(pool):
     nonpickl = create_dummy('')
     dummy1 = create_dummy_with_shared('dummy1', nonpickl, ret=nonpickl)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == [TaskRes(dummy1, shared={'dummy1': nonpickl}, ret=nonpickl)]
 
 #
@@ -354,7 +354,7 @@ def test_kwargs_without_args(pool):
     args = {'testargs': 1234}
     sched.meta.assign_val(dummy1, kwargs=args)
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     dummy1res = res[0]
     assert dummy1res.task == dummy1
     assert dummy1res.excinfo.type == TypeError

@@ -21,7 +21,7 @@ from tests.sched.common import check_resources
 def test_sanity():
     s = sched.Sched([])
 
-def test_default_empty():
+def test_empty_default():
     s = sched.Sched([])
     res = list(s.run())
     print(res)
@@ -29,14 +29,20 @@ def test_default_empty():
 @parametrize_pool_both()
 def test_empty(pool):
     s = sched.Sched([])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == []
+
+def test_task_via_init_default():
+    dummy1 = create_dummy('dummy1')
+    s = sched.Sched([dummy1])
+    res = list(s.run())
+    assert res == [TaskRes(dummy1)]
 
 @parametrize_pool_both()
 def test_task_via_init(pool):
     dummy1 = create_dummy('dummy1')
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert res == [TaskRes(dummy1)]
 
 @parametrize_pool_both()
@@ -45,7 +51,7 @@ def test_add_tasks(pool):
     dummy2 = create_dummy('dummy2')
     s = sched.Sched([dummy1])
     s.add_tasks([dummy2])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert TaskRes(dummy1) in res
     assert TaskRes(dummy2) in res
 
@@ -54,10 +60,10 @@ def test_restart(pool):
     dummy1 = create_dummy('dummy1')
     dummy2 = create_dummy('dummy2')
     s = sched.Sched([dummy1])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert TaskRes(dummy1) in res
     s.add_tasks([dummy2])
-    res = list(s.run(pooltype=pool))
+    res = list(s.run(pool()))
     assert TaskRes(dummy2) in res
 
 # TODO: running tasks that were not present when the pool started

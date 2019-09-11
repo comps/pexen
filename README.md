@@ -208,3 +208,12 @@ readability.
     to lots of tests.
   * Also useful for tasks that should logically run "together", possibly
     needing sequential execution due to formal requirements.
+
+* Adding new tasks on-the-fly
+  * While processing results from the `Sched.run()` iterator, add new tasks
+  * Useful when the overall task set depends on result(s) from some tasks
+  * `pexen.sched.pool` support already in place
+    * But proper `Sched` support would need heavy rewrites, removal of sanity
+      checks, etc.
+      * I did the rewrite; took 6-8 hours and the code was incomprehensible
+      * Refactoring of the whole `pexen.sched` would be needed
