@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pexen",
-    version="0.0.1",
+    version="0.0.2",
     author="Jiri Jaburek",
     author_email="comps@nomail.dom",
     description="Python EXecution ENvironment, scheduler included",
