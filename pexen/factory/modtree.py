@@ -6,6 +6,17 @@ from .base import BaseFactory
 from .module import ModuleFactory
 
 class ModTreeFactory(BaseFactory):
+    """
+    Walks a tree of modules/packages, calls ModuleFactory on each.
+
+    Note that any modules found are imported and all callables they contain
+    after import are considered (as per ModuleFactory rules).
+    This means you can selectively alter the callables available via import-time
+    execution.
+
+    Arguments:
+        match - passed to ModuleFactory as-is
+    """
     def __init__(self, match=None):
         super().__init__()
         self.match = match
