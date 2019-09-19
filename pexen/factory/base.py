@@ -19,8 +19,10 @@ class BaseFactory:
     def callpath_pop(self):
         self.callpath.pop()
 
-    def callpath_burn(self, obj, objname=''):
-        path = self.callpath.copy()
+    def callpath_burn(self, obj, objname='', path=[]):
+        if not path:
+            path = self.callpath
         if objname:
+            path = path.copy()
             path.append(objname)
         setattr(obj, CALLPATH_ATTR_NAME, path)

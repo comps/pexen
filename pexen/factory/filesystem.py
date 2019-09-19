@@ -18,15 +18,22 @@ class FilesystemFactory(BaseFactory):
         self.follow_symlinks = follow
         self.capture_output = capture
 
-    def wrap_executable(self, path):
+    def wrap_executable(self, dirpath, fname):
+        full = os.path.join(dirpath, fname)
         def run_exec():
-            p = subprocess.run([os.path.basename(path)],
-                               cwd=os.path.dirname(path),
-                               executable=os.path.abspath(path),
+            p = subprocess.run([fname],
+                               cwd=dirpath,
+                               executable=os.path.abspath(full),
                                capture_output=self.capture_output,
                                check=True)
             return p
+        self.callpath_burn(run_exec, fname, path=dirpath.strip('/').split('/'))
         return run_exec
+
+    def valid_executable(self, dirpath, fname):
+        full = os.path.join(dirpath, fname)
+        if os.access(full, os.X_OK):
+            return True
 
     def __call__(self, startpath):
         for data in os.walk(startpath, followlinks=self.follow_symlinks,
@@ -36,6 +43,5 @@ class FilesystemFactory(BaseFactory):
             files[:] = [f for f in files if not f[0] == '.']
             dirs[:] = [d for d in dirs if not d[0] == '.']
             for fname in files:
-                fullpath = os.path.join(dirpath, fname)
-                if os.access(fullpath, os.X_OK):
-                    yield self.wrap_executable(fullpath)
+                if self.valid_executable(dirpath, fname):
+                    yield self.wrap_executable(dirpath, fname)
