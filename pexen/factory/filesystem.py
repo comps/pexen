@@ -16,7 +16,10 @@ class FilesystemFactory(BaseFactory):
     def __init__(self, follow=False, capture=True):
         super().__init__()
         self.follow_symlinks = follow
-        self.capture_output = capture
+        self.capture_args = {}
+        if capture:
+            self.capture_args = {'stdout': subprocess.PIPE,
+                                 'stderr': subprocess.PIPE}
 
     def wrap_executable(self, dirpath, fname):
         full = os.path.join(dirpath, fname)
@@ -24,8 +27,8 @@ class FilesystemFactory(BaseFactory):
             p = subprocess.run([fname],
                                cwd=dirpath,
                                executable=os.path.abspath(full),
-                               capture_output=self.capture_output,
-                               check=True)
+                               check=True,
+                               **self.capture_args)
             return p
         self.callpath_burn(run_exec, fname, path=dirpath.strip('/').split('/'))
         return run_exec
