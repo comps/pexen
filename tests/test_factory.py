@@ -1,3 +1,5 @@
+import os
+import subprocess
 from pexen import factory, sched
 
 from tests.factory_test_data import modtree as modtree_root
@@ -29,3 +31,15 @@ def test_modtree_fnmatch():
     f = factory.ModTreeFactory(match='test_*')
     match = set(f(modtree_root))
     assert 'test_metaless_dummy' in (x.__name__ for x in match)
+
+if os.path.exists('/bin/sh'):
+    def test_filesystem():
+        f = factory.FilesystemFactory()
+        funcs = list(f('tests/factory_test_data/filesystem'))
+        res = [x() for x in funcs]
+        for r in res:
+            assert isinstance(r, subprocess.CompletedProcess)
+            assert r.returncode == 0
+        assert len(res) == 2  # hidden didn't run
+        assert 'dummy1' in res[0].stdout.decode()  # dummy1 is always first
+        assert 'dummy2' in res[1].stdout.decode()
