@@ -7,19 +7,21 @@ class FilesystemFactory(BaseFactory):
     """
     Wraps executable files on a filesystem in python's subprocess module.
 
-    The wrapper return value is a subprocess.CompletedProcess instance.
+    Any extra __init__ kwargs are passed to subprocess.Popen, ie. pass either
+      stdout=subprocess.PIPE to capture it,
+      stdout=subprocess.DEVNULL to discard it,
+      leave it as None (default) to not touch it
+
+    The wrapper return value is a subprocess.CompletedProcess instance,
+    it raises subprocess.CalledProcessError if the executable fails.
 
     Arguments:
         follow - recursively follow symlinks to directories
-        capture - intercept stdout/stderr, returning it in CompletedProcess
     """
-    def __init__(self, follow=False, capture=True):
+    def __init__(self, follow=False, **kwargs):
         super().__init__()
         self.follow_symlinks = follow
-        self.capture_args = {}
-        if capture:
-            self.capture_args = {'stdout': subprocess.PIPE,
-                                 'stderr': subprocess.PIPE}
+        self.extra_args = kwargs
 
     def wrap_executable(self, dirpath, fname):
         full = os.path.join(dirpath, fname)
@@ -28,7 +30,7 @@ class FilesystemFactory(BaseFactory):
                                cwd=dirpath,
                                executable=os.path.abspath(full),
                                check=True,
-                               **self.capture_args)
+                               **self.extra_args)
             return p
         self.callpath_burn(run_exec, fname, path=dirpath.strip('/').split('/'))
         return run_exec

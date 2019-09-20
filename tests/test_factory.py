@@ -41,7 +41,7 @@ def test_modtree_fnmatch():
 if os.path.exists('/bin/sh'):
     fs_prefix = 'tests/factory_test_data/filesystem'
     def test_filesystem():
-        f = factory.FilesystemFactory()
+        f = factory.FilesystemFactory(stdout=subprocess.PIPE)
         funcs = list(f(fs_prefix))
         res = [x() for x in funcs]
         for r in res:
@@ -56,7 +56,7 @@ if os.path.exists('/bin/sh'):
         assert stdouts.index('dummy1') < stdouts.index('dummy2')
 
     def test_filesystem_callpath():
-        f = factory.FilesystemFactory()
+        f = factory.FilesystemFactory(stdout=subprocess.PIPE)
         funcs = list(f(fs_prefix))
         res = dict((x,x()) for x in funcs)
         prefix_list = fs_prefix.strip('/').split('/')
