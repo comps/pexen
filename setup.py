@@ -12,7 +12,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/comps/pexen",
-    packages=["pexen"],
+    packages=setuptools.find_packages(),
     setup_requires=["pytest-runner"],
     tests_require=["pytest", "psutil"],
     classifiers=[
