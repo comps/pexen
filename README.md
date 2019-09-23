@@ -78,6 +78,21 @@ readability.
 
 ## Wishlist
 
+(In no specific order.)
+
+* Debug support
+  * While the tasks are running, ie. during results iteration
+  * Currently running tasks
+    * Impossible to get, but the scheduler could keep track of what tasks
+      were put on frontline and remove them from tracking when they finish
+  * Currently held locks
+  * ...
+  * Very useful to find badly behaving tasks
+
+* Shutdown / interrupt support
+  * Abort execution based on ie. fatal result from some task
+  * As `.shutdown()` or via context manager?
+
 * Scheduling groups of exclusivity
   * Pass groups of callables instead of just callables to the scheduler
   * Have only one group running at a time
@@ -93,6 +108,14 @@ readability.
     to lots of tests.
   * Also useful for tasks that should logically run "together", possibly
     needing sequential execution due to formal requirements.
+
+* HierarchyLock, a special object for `uses`/`claims`
+  * If one task locks `/proc/sys/net`, another task blocks while trying to lock
+    `/proc/sys/net/ipv4/ip_forward`, without having to try to lock its parents.
+    * Filesystem paths are just an example, `list` would be used instead of `/`
+  * Should be easy to implement
+    * Hack everything in __eq__ of the object instance
+    * No changes to sched needed
 
 * Adding new tasks on-the-fly
   * While processing results from the `Sched.run()` iterator, add new tasks
@@ -115,3 +138,12 @@ readability.
   * Ie. "test suite UseCase" for running a test suite, collecting and formatting
     results, storing xUnit results in a file, supporting resume from
     an interrupted execution, etc.
+
+* NetworkWorkerPool, based on ProcessWorkerPool
+  * Can listen/connect across network
+  * Addresses, ports, etc. defined in pool constructor, by the user
+  * Transmits picklable objects, like ProcessWorkerPool, but over network
+  * Could open further cans of worms
+    * "Run this one setup task on all nodes"
+    * "Define node properties and run certain tasks only on certain nodes"
+    * etc.
