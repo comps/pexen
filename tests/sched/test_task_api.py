@@ -27,7 +27,7 @@ def test_return_value(pool):
 
 @parametrize_pool_both()
 def test_return_exception(pool):
-    dummy1 = create_dummy_with_exception('dummy1', NameError)
+    dummy1 = create_dummy_with_exception('dummy1', NameError())
     s = sched.Sched([dummy1])
     res = list(s.run(pool()))
     dummy1res = res[0]
@@ -90,10 +90,6 @@ def test_required_not_provided():
     with pytest.raises(sched.DepcheckError) as exc:
         s = sched.Sched([dummy1])
     assert "Unsatisfied requires remain: ['one']" in str(exc.value)
-
-# we cannot easily test a case of required_not_provided with __debug__ == False
-# due to __debug__ not being configurable during runtime
-# the code, however, should behave like in test_failed_deps
 
 def test_provided_not_required():
     dummy1 = create_dummy('dummy1')
@@ -211,11 +207,13 @@ def test_shared_kwargs(pool):
 # Task failure and chaining (unmet deps, held locks)
 #
 
+@pytest.mark.parametrize('exc', [NameError(), sched.TaskFailError(deps_ok=False)],
+                                ids=['NameError','TaskFailError(deps_ok=False)'])
 @parametrize_pool_both()
-def test_failed_deps(pool):
+def test_failed_deps(pool, exc):
     dummy1 = create_dummy('dummy1')
     sched.meta.assign_val(dummy1, requires=['dep'])
-    dummy2 = create_dummy_with_exception('dummy2', NameError)
+    dummy2 = create_dummy_with_exception('dummy2', exc)
     sched.meta.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
     with warnings.catch_warnings(record=True) as caught:
@@ -223,8 +221,8 @@ def test_failed_deps(pool):
     assert len(res) == 1  # dummy1 didn't run
     dummy2res = res[0]
     assert dummy2res.task == dummy2
-    assert dummy2res.excinfo.type == NameError
-    assert isinstance(dummy2res.excinfo.val, NameError)
+    assert dummy2res.excinfo.type == type(exc)
+    assert isinstance(dummy2res.excinfo.val, type(exc))
     assert len(caught) == 1  # only one warning
     assert caught[0].category == util.PexenWarning
     assert "1 tasks skipped due to unmet deps" in str(caught[0].message)
@@ -233,7 +231,7 @@ def test_failed_deps(pool):
 def test_failed_deps_controlled(pool):
     dummy1 = create_dummy('dummy1')
     sched.meta.assign_val(dummy1, requires=['dep'])
-    dummy2 = create_dummy_with_exception('dummy2', sched.TaskFailError)
+    dummy2 = create_dummy_with_exception('dummy2', sched.TaskFailError())
     sched.meta.assign_val(dummy2, provides=['dep'])
     s = sched.Sched([dummy2, dummy1])
     with warnings.catch_warnings(record=True) as caught:
@@ -246,11 +244,13 @@ def test_failed_deps_controlled(pool):
     assert dummy1res.task == dummy1
     assert len(caught) == 0  # no warnings
 
+@pytest.mark.parametrize('exc', [NameError(), sched.TaskFailError(locks_ok=False)],
+                                ids=['NameError','TaskFailError(locks_ok=False)'])
 @parametrize_pool_both()
-def test_failed_locks(pool):
+def test_failed_locks(pool, exc):
     dummy1 = create_dummy('dummy1')
     sched.meta.assign_val(dummy1, priority=2, claims=['res'])
-    dummy2 = create_dummy_with_exception('dummy2', NameError)
+    dummy2 = create_dummy_with_exception('dummy2', exc)
     sched.meta.assign_val(dummy2, priority=1, claims=['res'])
     s = sched.Sched([dummy1, dummy2])
     with warnings.catch_warnings(record=True) as caught:
@@ -258,8 +258,8 @@ def test_failed_locks(pool):
     assert len(res) == 1  # dummy1 didn't run
     dummy2res = res[0]
     assert dummy2res.task == dummy2
-    assert dummy2res.excinfo.type == NameError
-    assert isinstance(dummy2res.excinfo.val, NameError)
+    assert dummy2res.excinfo.type == type(exc)
+    assert isinstance(dummy2res.excinfo.val, type(exc))
     assert len(caught) == 1  # only one warning
     assert caught[0].category == util.PexenWarning
     assert "1 locks still held at exit" in str(caught[0].message)
@@ -268,7 +268,7 @@ def test_failed_locks(pool):
 def test_failed_locks_controlled(pool):
     dummy1 = create_dummy('dummy1')
     sched.meta.assign_val(dummy1, priority=2, claims=['res'])
-    dummy2 = create_dummy_with_exception('dummy2', sched.TaskFailError)
+    dummy2 = create_dummy_with_exception('dummy2', sched.TaskFailError())
     sched.meta.assign_val(dummy2, priority=1, claims=['res'])
     s = sched.Sched([dummy1, dummy2])
     with warnings.catch_warnings(record=True) as caught:

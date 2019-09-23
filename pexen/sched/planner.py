@@ -295,12 +295,26 @@ class Sched:
         self.default_shared.update(kwargs)
 
     @staticmethod
-    def _is_controlled_fail(excinfo):
-        """Return True if the task exception is a user-induced one,
-        as opposed to an unexpected one.
+    def _was_successful(taskres, deps_ok=None, locks_ok=None):
         """
-        extype, exval, extb = excinfo
-        return issubclass(extype, common.TaskFailError)
+        Return True if the task was successful or failed in a controlled manner.
+        Also check whether one or both of deps_ok/locks_ok matches the expected
+        bool value in TaskFailError.
+
+        If any of the above is in an unexpected state, return False."""
+        # successful
+        if not taskres.excinfo:
+            return True
+        extype, exval, extb = taskres.excinfo
+        # not controlled fail
+        if not issubclass(extype, common.TaskFailError):
+            return False
+        # not matching expected exc args
+        if deps_ok != None and exval.deps_ok != deps_ok:
+            return False
+        if locks_ok != None and exval.locks_ok != locks_ok:
+            return False
+        return True
 
     # TODO: prevent run() from being called while tasks are running
 
@@ -335,22 +349,19 @@ class Sched:
         for taskres in poolinst.iter_results():
             yield taskres
 
-            # if it didn't fail or failed controllably
-            if not taskres.excinfo or self._is_controlled_fail(taskres.excinfo):
+            if self._was_successful(taskres, locks_ok=True):
                 # process claims/uses, free mutexes since the task ended
                 self.lockmap.release(taskres.task)
 
+            if self._was_successful(taskres, deps_ok=True):
                 # propagate shared state from current to next tasks
                 children = self.depmap.children(taskres.task)
                 self.sharedmap.update(children, taskres.shared)
-
                 # tasks to be scheduled next, unblocked by fresh provides
                 next_tasks = self.depmap.satisfy(taskres.task)
-
                 # pass through only tasks that don't need any locks or that can
                 # successfully acquire all of their locks
                 next_tasks = self.lockmap.add(next_tasks)
-
                 frontline.add(next_tasks)
 
             del self.sharedmap[taskres.task]

@@ -57,7 +57,7 @@ def create_dummy_with_return(name, ret):
 def create_dummy_with_exception(name, exc):
     def dummy_exception():
         print(f"running dummy {name} :: raising: {exc}")
-        raise exc()
+        raise exc
         return not None  # shouldn't be reached
     return dummy_exception
 

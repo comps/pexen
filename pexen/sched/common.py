@@ -6,7 +6,14 @@ class SchedulerError(PexenError):
     pass
 
 class TaskFailError(Exception):
-    pass
+    def __init__(self, *args, deps_ok=True, locks_ok=True):
+        self.deps_ok = deps_ok
+        self.locks_ok = locks_ok
+        super().__init__(*args)
+#    def __str__(self):
+#        return f'deps_ok: {self.deps_ok}, locks_ok: {self.locks_ok}'
+#    def __repr__(self):
+#        return f'{self.__class__.__name__}({self.__str__()})'
 
 # task result from pool/planner returned to the caller
 TaskRes = namedtuple('TaskRes', ['task', 'shared', 'ret', 'excinfo'])

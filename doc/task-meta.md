@@ -265,8 +265,16 @@ TaskRes(task=<function greet_underlings at 0x7fd9ac1b4050>, shared={}, ret='Hell
 TaskRes(task=<function greet_signature at 0x7fd9ac186cb0>, shared={}, ret='Yours, Mr. Builder', excinfo=None)
 ```
 
-Alternatively, you can silence the warnings using standard pythonic means,
-see [documentation on warning control](https://docs.python.org/3/library/warnings.html).
+You can also choose which properties (deps, locks) are in a controlled/expected
+state (all default to `True`):
+```python
+    raise sched.TaskFailError("Hello Harsh World!", deps_ok=False, locks_ok=True)
+```
+This way, you can ie. unlock all held resources while blocking child tasks
+from running.
+
+Alternatively to `TaskFailError`, you can silence the warnings using standard
+pythonic means, see [documentation on warning control](https://docs.python.org/3/library/warnings.html).
 
 Note that if any of the exception type/value/traceback fields are not picklable,
 they will be replaced by `None` in the returned `ExceptionInfo` structure.
