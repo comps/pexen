@@ -246,6 +246,8 @@ pexen/pexen/sched/planner.py:379: PexenWarning: 1 locks still held at exit due t
   category=util.PexenWarning)
 ```
 
+### TaskFailError
+
 You can override this by catching the exception within the task code and raising
 `pexen.sched.TaskFailError` or your own subclassed from it. This signals the
 scheduler that the task failed in a controller manner and that the user took
@@ -268,10 +270,38 @@ TaskRes(task=<function greet_signature at 0x7fd9ac186cb0>, shared={}, ret='Yours
 You can also choose which properties (deps, locks) are in a controlled/expected
 state (all default to `True`):
 ```python
+...
     raise sched.TaskFailError("Hello Harsh World!", deps_ok=False, locks_ok=True)
+...
 ```
 This way, you can ie. unlock all held resources while blocking child tasks
 from running.
+
+### A decorator for TaskFailError
+
+For simplicity, if you just want any function/callable to always fail
+controllably regardless of the raised exception:
+```python
+@sched.task_fail_wrap
+def greet_exc():
+    ...
+
+@sched.task_fail_wrap(deps_ok=False)
+def greet_exc2():
+    ...
+
+class MyException(sched.TaskFailError):
+    pass
+
+@sched.task_fail_wrap(reraise=MyException)
+def greet_exc3():
+    ...
+```
+Note that by using the decorator, you lose any ability to pass data
+(ie. a failed test result) from the failed task, whereas by subclassing
+`TaskFailError` and raising it, you can pass data as its args / attributes.
+
+...
 
 Alternatively to `TaskFailError`, you can silence the warnings using standard
 pythonic means, see [documentation on warning control](https://docs.python.org/3/library/warnings.html).

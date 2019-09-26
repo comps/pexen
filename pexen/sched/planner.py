@@ -309,6 +309,11 @@ class Sched:
         # not controlled fail
         if not issubclass(extype, common.TaskFailError):
             return False
+        # user-subclassed TaskFailError with non-picklable data,
+        # assume the task failed uncontrollably rather than assuming defaults
+        # for TaskFailError parameters
+        if exval == None:
+            return False
         # not matching expected exc args
         if deps_ok != None and exval.deps_ok != deps_ok:
             return False
